@@ -1,6 +1,7 @@
 //! TackNote: sticky notes on the desktop and an Android home screen widget,
 //! synced through the user's own WebDAV space.
 
+mod app;
 pub mod checklist;
 pub mod merge;
 pub mod model;
@@ -16,6 +17,11 @@ mod test_server;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .invoke_handler(app::handlers())
+        .setup(|app| {
+            app::setup(app);
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running TackNote");
 }

@@ -3,9 +3,11 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test": "node --test tests/"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.12.4"
-  }
+  },
+  "type": "module"
 }

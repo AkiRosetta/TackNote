@@ -1,12 +1,74 @@
 <!doctype html>
-<html lang="zh">
+<html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TackNote</title>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
-<!-- Placeholder until the interface is ported from the Flutter version. -->
-<p>TackNote</p>
+<section id="home" class="view">
+  <header class="bar">
+    <h1 class="title">TackNote</h1>
+    <button id="sync-button" class="icon-button" type="button" data-icon="cloud"></button>
+  </header>
+  <label class="search">
+    <span class="search-icon" data-icon="search"></span>
+    <input id="search" type="search" autocomplete="off" data-placeholder="search">
+  </label>
+  <main id="notes" class="notes"></main>
+  <div id="empty" class="empty" hidden>
+    <p id="empty-title" class="empty-title"></p>
+    <p id="empty-body"></p>
+  </div>
+  <button id="new-note" class="fab" type="button" data-icon="add" data-label="newNote"></button>
+</section>
+
+<section id="editor" class="view" hidden>
+  <header class="bar">
+    <button id="editor-back" class="icon-button" type="button" data-icon="back" data-label="back"></button>
+    <span class="spacer"></span>
+    <button id="add-checkbox" class="icon-button" type="button" data-icon="checkbox" data-label="addCheckbox"></button>
+    <button id="toggle-pin" class="icon-button" type="button" data-icon="pinOutline"></button>
+    <button id="delete-note" class="icon-button" type="button" data-icon="delete" data-label="delete"></button>
+  </header>
+  <div class="editor-body">
+    <p id="editor-conflict" class="conflict-label" data-text="conflictCopy" hidden></p>
+    <textarea id="note-text" spellcheck="false" data-placeholder="placeholder"></textarea>
+  </div>
+  <div id="colors" class="colors"></div>
+</section>
+
+<section id="settings" class="view" hidden>
+  <header class="bar">
+    <button id="settings-back" class="icon-button" type="button" data-icon="back" data-label="back"></button>
+    <h1 class="title" data-text="settings"></h1>
+  </header>
+  <form id="settings-form" class="settings" autocomplete="off">
+    <p data-text="settingsHint"></p>
+    <label class="field"><span data-text="webdavUrl"></span>
+      <input id="webdav-url" type="url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://dav.example.com/">
+    </label>
+    <p id="insecure-warning" class="warning" data-text="insecureUrl" hidden></p>
+    <label class="field"><span data-text="username"></span>
+      <input id="webdav-username" type="text" autocapitalize="off" spellcheck="false">
+    </label>
+    <label class="field"><span data-text="password"></span>
+      <input id="webdav-password" type="password" autocomplete="new-password">
+    </label>
+    <p id="password-unavailable" class="warning" data-text="passwordUnavailable" hidden></p>
+    <button id="save-settings" class="primary" type="submit" data-text="saveAndSync"></button>
+    <p id="settings-error" class="warning" hidden></p>
+    <p id="settings-status" class="status"></p>
+  </form>
+</section>
+
+<div id="fatal" class="fatal" hidden>
+  <p data-text="openFailed"></p>
+  <p id="fatal-detail" class="detail"></p>
+</div>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script type="module" src="main.js"></script>
 </body>
 </html>

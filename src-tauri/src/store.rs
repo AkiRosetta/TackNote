@@ -146,6 +146,22 @@ impl NoteStore {
         Ok(true)
     }
 
+    /// Text typed in an editor that last showed `base`. If the note changed
+    /// since then, for example a sync landed while the user was typing, that
+    /// other text is kept as a conflict copy instead of being overwritten.
+    pub fn edit_text(&mut self, id: &str, base: &str, text: String) -> io::Result<bool> {
+        let Some(note) = self.notes.get(id) else {
+            return Ok(false);
+        };
+        if note.text != base && note.text != text {
+            let mut copy = Note::new(&self.device_id, note.text.clone(), (self.clock)());
+            copy.color_index = note.color_index;
+            copy.conflict_copy = true;
+            self.notes.insert(copy.id.clone(), copy);
+        }
+        self.update(id, Change { text: Some(text), ..Change::default() })
+    }
+
     pub fn toggle_checkbox(&mut self, id: &str, line: usize) -> io::Result<bool> {
         let Some(note) = self.notes.get(id) else {
             return Ok(false);
@@ -490,5 +506,51 @@ mod tests {
         assert!(store.toggle_checkbox(&note.id, 1).unwrap());
         assert_eq!(open(&folder).get(&note.id).unwrap().text, "list\n[x] milk");
         assert!(!store.toggle_checkbox(&note.id, 0).unwrap());
+    }
+
+    #[test]
+    fn typing_on_the_text_the_editor_showed_keeps_no_copy() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let note = store.create("a", 0).unwrap();
+        assert!(store.edit_text(&note.id, "a", "ab".into()).unwrap());
+        assert_eq!(store.get(&note.id).unwrap().text, "ab");
+        assert_eq!(store.all().len(), 1);
+    }
+
+    #[test]
+    fn typing_over_text_the_editor_never_showed_keeps_that_text_as_a_copy() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let note = store.create("a", 3).unwrap();
+        // A sync brought "from the phone" before the editor showed it.
+        store.update(&note.id, text("from the phone")).unwrap();
+        assert!(store.edit_text(&note.id, "a", "ab".into()).unwrap());
+        assert_eq!(store.get(&note.id).unwrap().text, "ab");
+        let copies: Vec<Note> = store.all().into_iter().filter(|n| n.id != note.id).collect();
+        assert_eq!(copies.len(), 1);
+        assert_eq!(copies[0].text, "from the phone");
+        assert!(copies[0].conflict_copy);
+        assert_eq!(copies[0].color_index, 3);
+        let reopened = open(&folder);
+        assert_eq!(reopened.all().len(), 2, "the copy is saved on disk");
+    }
+
+    #[test]
+    fn saving_the_same_text_twice_keeps_no_copy() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let note = store.create("a", 0).unwrap();
+        store.edit_text(&note.id, "a", "ab".into()).unwrap();
+        assert!(!store.edit_text(&note.id, "a", "ab".into()).unwrap());
+        assert_eq!(store.all().len(), 1);
+    }
+
+    #[test]
+    fn typing_into_a_missing_note_changes_nothing() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        assert!(!store.edit_text("missing", "", "x".into()).unwrap());
+        assert!(store.all().is_empty());
     }
 }
