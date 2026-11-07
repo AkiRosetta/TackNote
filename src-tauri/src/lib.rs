@@ -5,6 +5,11 @@ pub mod checklist;
 pub mod merge;
 pub mod model;
 pub mod store;
+pub mod sync_engine;
+pub mod webdav;
+
+#[cfg(test)]
+mod test_server;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
