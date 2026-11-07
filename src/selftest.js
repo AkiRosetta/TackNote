@@ -277,6 +277,49 @@ export async function run({ invoke, mode }) {
     );
     await askSticky(kept, 'type', { text: '贴在桌面上' });
     check(await until(async () => (await saved(kept)) === '贴在桌面上'), 'typing in a new sticky window saves the note');
+
+    // Dragging cards into a new order, with the mouse as a person would.
+    const made = [];
+    for (const text of ['甲', '乙', '丙']) {
+      const note = await invoke('create_note', {});
+      await invoke('edit_text', { id: note.id, base: '', text });
+      made.push(note.id);
+    }
+    const [jia, yi, bing] = made;
+    const cardOf = (noteId) => $(`.card[data-id="${noteId}"]`);
+    check(await until(() => cardOf(jia) && cardOf(yi) && cardOf(bing)), 'three new notes in the list');
+    const listed = async () => (await invoke('list_notes')).map((n) => n.id).filter((noteId) => made.includes(noteId));
+    check((await listed()).join() === [bing, yi, jia].join(), 'the newest comes first before any dragging');
+    async function dragCard(from, to, lowerHalf) {
+      const start = from.getBoundingClientRect();
+      const end = to.getBoundingClientRect();
+      const [x0, y0] = [start.left + start.width / 2, start.top + start.height / 2];
+      const [x1, y1] = [end.left + end.width / 2, lowerHalf ? end.bottom - 4 : end.top + 4];
+      from.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, button: 0, clientX: x0, clientY: y0 }));
+      for (let step = 1; step <= 6; step++) {
+        const x = x0 + ((x1 - x0) * step) / 6;
+        const y = y0 + ((y1 - y0) * step) / 6;
+        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
+        await wait(20);
+      }
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x1, clientY: y1 }));
+    }
+    await dragCard(cardOf(jia), cardOf(bing), false);
+    check(
+      await until(async () => (await listed()).join() === [jia, bing, yi].join()),
+      'dragging the bottom card onto the top one puts it first',
+    );
+    check(shown('home') && !shown('editor'), 'a drag does not open the note');
+    check(await until(() => {
+      const order = [...document.querySelectorAll('.card')].map((el) => el.dataset.id).filter((noteId) => made.includes(noteId));
+      return order.join() === [jia, bing, yi].join();
+    }), 'the list shows the new order');
+    await invoke('update_note', { id: bing, pinned: true });
+    await until(() => cardOf(bing)?.querySelector('.pin-mark'));
+    await dragCard(cardOf(yi), cardOf(bing), false);
+    await wait(300);
+    check((await listed()).join() === [bing, jia, yi].join(), 'a card cannot be dragged among the pinned notes');
+
     // Not waiting for the save: quitting must write the new place itself.
     await invoke('selftest_move_window', { label: `sticky-${kept}`, x: 400, y: 300 });
   } catch (error) {

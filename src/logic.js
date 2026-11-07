@@ -35,6 +35,21 @@ export function distribute(notes, columnCount) {
   return columns;
 }
 
+/**
+ * Where a dragged card lands, as the `before` id `move_note` takes: the card
+ * it is over, or the one after that card when over its lower half. `null` is
+ * the end of the list. `undefined` means it cannot go there: pinned notes
+ * stay above the others, so a card only moves within its own group.
+ */
+export function dropBefore(notes, draggedId, targetId, lowerHalf) {
+  const dragged = notes.find((note) => note.id === draggedId);
+  const target = notes.find((note) => note.id === targetId);
+  if (!dragged || !target || dragged === target || dragged.pinned !== target.pinned) return undefined;
+  if (!lowerHalf) return target.id;
+  const next = notes.slice(notes.indexOf(target) + 1).find((note) => note.id !== draggedId);
+  return next ? next.id : null;
+}
+
 export function matches(note, query) {
   const wanted = query.trim().toLowerCase();
   return wanted === '' || note.text.toLowerCase().includes(wanted);

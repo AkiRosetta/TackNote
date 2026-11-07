@@ -5,6 +5,7 @@ use chrono::Utc;
 
 use crate::merge::merge_notes;
 use crate::model::Note;
+use crate::order::{merge_order, NoteOrder};
 use crate::webdav::{RemoteStore, SyncError, SyncErrorKind, WriteError};
 
 pub const REMOTE_FORMAT_VERSION: u64 = 1;
@@ -14,21 +15,33 @@ const MAX_ATTEMPTS: usize = 3;
 pub struct SyncOutcome {
     pub notes: Vec<Note>,
     pub conflicts: usize,
+    /// The order the user dragged the notes into, merged like the notes.
+    pub order: Option<NoteOrder>,
 }
 
 pub async fn sync<S: RemoteStore>(store: &S, local: &[Note], device_id: &str) -> Result<SyncOutcome, SyncError> {
+    sync_with_order(store, local, None, device_id).await
+}
+
+pub async fn sync_with_order<S: RemoteStore>(
+    store: &S,
+    local: &[Note],
+    local_order: Option<&NoteOrder>,
+    device_id: &str,
+) -> Result<SyncOutcome, SyncError> {
     for attempt in 1.. {
         let file = store.read().await?;
-        let remote = match &file {
-            Some(file) => decode(&file.body)?,
-            None => Vec::new(),
+        let (remote, remote_order) = match &file {
+            Some(file) => decode_file(&file.body)?,
+            None => (Vec::new(), None),
         };
         let result = merge_notes(local, &remote, device_id, Utc::now());
-        let outcome = SyncOutcome { notes: result.notes, conflicts: result.conflicts };
-        if !result.remote_needs_update && file.is_some() {
+        let order = merge_order(local_order, remote_order.as_ref());
+        let outcome = SyncOutcome { notes: result.notes, conflicts: result.conflicts, order: order.order };
+        if !result.remote_needs_update && !order.remote_needs_update && file.is_some() {
             return Ok(outcome);
         }
-        match store.write(encode(&outcome.notes), file).await {
+        match store.write(encode_file(&outcome.notes, outcome.order.as_ref()), file).await {
             Ok(()) => return Ok(outcome),
             Err(WriteError::Changed) if attempt < MAX_ATTEMPTS => continue,
             Err(WriteError::Changed) => {
@@ -43,6 +56,11 @@ pub async fn sync<S: RemoteStore>(store: &S, local: &[Note], device_id: &str) ->
 /// Fails rather than returning no notes, because treating a damaged file as
 /// empty would overwrite the user's notes on the server.
 pub fn decode(body: &str) -> Result<Vec<Note>, SyncError> {
+    decode_file(body).map(|(notes, _)| notes)
+}
+
+/// The notes and, if any device has reordered them, the order.
+pub fn decode_file(body: &str) -> Result<(Vec<Note>, Option<NoteOrder>), SyncError> {
     let corrupt = |detail: String| SyncError::new(SyncErrorKind::Corrupt, detail);
     let value: serde_json::Value = serde_json::from_str(body).map_err(|error| corrupt(error.to_string()))?;
     let Some(notes) = value.get("notes").filter(|notes| notes.is_array()) else {
@@ -54,12 +72,25 @@ pub fn decode(body: &str) -> Result<Vec<Note>, SyncError> {
             return Err(SyncError::new(SyncErrorKind::UnsupportedVersion, format!("{other:?}")));
         }
     }
-    serde_json::from_value(notes.clone()).map_err(|error| corrupt(error.to_string()))
+    let notes = serde_json::from_value(notes.clone()).map_err(|error| corrupt(error.to_string()))?;
+    let order = match value.get("order") {
+        None | Some(serde_json::Value::Null) => None,
+        Some(order) => Some(serde_json::from_value(order.clone()).map_err(|error| corrupt(error.to_string()))?),
+    };
+    Ok((notes, order))
 }
 
 pub fn encode(notes: &[Note]) -> String {
+    encode_file(notes, None)
+}
+
+pub fn encode_file(notes: &[Note], order: Option<&NoteOrder>) -> String {
     let uploaded: Vec<Note> = notes.iter().map(Note::for_upload).collect();
-    serde_json::json!({ "version": REMOTE_FORMAT_VERSION, "notes": uploaded }).to_string()
+    let mut file = serde_json::json!({ "version": REMOTE_FORMAT_VERSION, "notes": uploaded });
+    if let Some(order) = order {
+        file["order"] = serde_json::to_value(order.for_upload()).expect("an order is plain data");
+    }
+    file.to_string()
 }
 
 #[cfg(test)]
@@ -250,5 +281,51 @@ mod tests {
         assert_eq!(decode(r#"{"notes":[]}"#).unwrap_err().kind, SyncErrorKind::UnsupportedVersion);
         assert_eq!(decode(r#"{"version":1,"notes":[{"id":1}]}"#).unwrap_err().kind, SyncErrorKind::Corrupt);
         assert!(decode(r#"{"version":1,"notes":[]}"#).unwrap().is_empty());
+    }
+
+    async fn run_ordered(server: &FakeWebDav, device: &str, local: &[Note], order: Option<&NoteOrder>) -> SyncOutcome {
+        sync_with_order(&store(server, "secret"), local, order, device).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_reorder_reaches_the_other_device() {
+        let server = FakeWebDav::start();
+        let notes = vec![note("one", "a"), note("two", "a")];
+        let order = NoteOrder::new(vec![notes[1].id.clone(), notes[0].id.clone()], "a", Utc::now());
+        run_ordered(&server, "a", &notes, Some(&order)).await;
+        assert!(!server.file(FILE).unwrap().contains("syncedRev"));
+        let other = run_ordered(&server, "b", &[], None).await;
+        assert_eq!(other.order.unwrap().ids, order.ids);
+    }
+
+    #[tokio::test]
+    async fn a_move_here_and_an_edit_there_keep_both_without_a_conflict_copy() {
+        let server = FakeWebDav::start();
+        let first = run(&server, "a", &[note("one", "a"), note("two", "a")]).await.unwrap();
+        // Device b edits "one".
+        let edited: Vec<Note> = first
+            .notes
+            .iter()
+            .map(|n| if n.text == "one" { n.edited("b", crate::model::Edit { text: Some("one, edited".into()), ..Default::default() }, Utc::now()) } else { n.clone() })
+            .collect();
+        run(&server, "b", &edited).await.unwrap();
+        // Device a only moves "one" to the end.
+        let ids: Vec<String> = first.notes.iter().map(|n| n.id.clone()).rev().collect();
+        let order = NoteOrder::new(ids.clone(), "a", Utc::now());
+        let outcome = run_ordered(&server, "a", &first.notes, Some(&order)).await;
+        assert_eq!(outcome.conflicts, 0);
+        assert_eq!(outcome.notes.len(), 2);
+        assert!(outcome.notes.iter().any(|n| n.text == "one, edited"));
+        assert_eq!(outcome.order.unwrap().ids, ids);
+        // Only the order changed here, and it still reached the server.
+        assert_eq!(run_ordered(&server, "c", &[], None).await.order.unwrap().ids, ids);
+    }
+
+    #[test]
+    fn a_file_without_an_order_still_reads_and_a_damaged_order_is_refused() {
+        let (notes, order) = decode_file(r#"{"version":1,"notes":[]}"#).unwrap();
+        assert!(notes.is_empty() && order.is_none());
+        let error = decode_file(r#"{"version":1,"notes":[],"order":{"ids":5}}"#).unwrap_err();
+        assert_eq!(error.kind, SyncErrorKind::Corrupt);
     }
 }

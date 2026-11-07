@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 
 use crate::settings::Settings;
 use crate::store::NoteStore;
-use crate::sync_engine::sync;
+use crate::sync_engine::sync_with_order;
 use crate::webdav::{RemoteStore, SyncErrorKind, WebDavConfig};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -145,14 +145,18 @@ where
             return self.set(SyncStatus::NotConfigured, None, false);
         }
         self.set(SyncStatus::Syncing, None, false);
-        let (local, revs_at_start, device_id) = {
+        let (local, revs_at_start, device_id, order) = {
             let notes = self.notes.lock().unwrap();
-            (notes.all(), notes.revs(), notes.device_id().to_string())
+            (notes.all(), notes.revs(), notes.device_id().to_string(), notes.order().cloned())
         };
         let remote = (self.make_remote)(config);
-        match sync(&remote, &local, &device_id).await {
+        match sync_with_order(&remote, &local, order.as_ref(), &device_id).await {
             Ok(outcome) => {
-                let saved = self.notes.lock().unwrap().apply_sync(outcome.notes, &revs_at_start);
+                let order_rev = order.as_ref().map(|order| order.rev.as_str());
+                let saved = {
+                    let mut notes = self.notes.lock().unwrap();
+                    notes.apply_sync(outcome.notes, &revs_at_start).and_then(|()| notes.apply_order(outcome.order, order_rev))
+                };
                 if saved.is_err() {
                     return self.set(SyncStatus::Error, Some(SyncErrorKind::LocalStorage), false);
                 }

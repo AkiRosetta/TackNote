@@ -9,6 +9,7 @@ pub mod checklist;
 mod desktop;
 pub mod merge;
 pub mod model;
+pub mod order;
 pub mod settings;
 pub mod stickies;
 pub mod store;

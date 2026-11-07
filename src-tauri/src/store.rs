@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::checklist::toggle_line;
 use crate::model::{new_id, Edit, Note};
+use crate::order::{moved, sort, NoteOrder};
 
 const FORMAT_VERSION: u32 = 1;
 
@@ -21,6 +22,8 @@ struct SavedState {
     version: u32,
     device_id: String,
     notes: Vec<Note>,
+    #[serde(default)]
+    order: Option<NoteOrder>,
 }
 
 /// Where the current time comes from; tests use a clock that always moves on.
@@ -38,6 +41,7 @@ pub struct NoteStore {
     path: PathBuf,
     device_id: String,
     notes: HashMap<String, Note>,
+    order: Option<NoteOrder>,
     clock: Clock,
 }
 
@@ -68,14 +72,15 @@ impl NoteStore {
             Err(error) => return Err(error),
         };
         let is_new = saved.is_none();
-        let (device_id, notes) = match saved {
-            Some(state) => (state.device_id, state.notes),
-            None => (new_id()[..8].to_string(), Vec::new()),
+        let (device_id, notes, order) = match saved {
+            Some(state) => (state.device_id, state.notes, state.order),
+            None => (new_id()[..8].to_string(), Vec::new(), None),
         };
         let store = NoteStore {
             path,
             device_id,
             notes: notes.into_iter().map(|note| (note.id.clone(), note)).collect(),
+            order,
             clock,
         };
         if is_new {
@@ -94,11 +99,43 @@ impl NoteStore {
         self.notes.values().cloned().collect()
     }
 
-    /// The notes to show: pinned first, then the most recently changed.
+    /// The notes to show: pinned first, then the order the user dragged them
+    /// into, with notes not placed yet (the newest first) at the top.
     pub fn visible(&self) -> Vec<Note> {
         let mut notes: Vec<Note> = self.notes.values().filter(|note| !note.deleted).cloned().collect();
-        notes.sort_by(|a, b| b.pinned.cmp(&a.pinned).then(b.updated_at.cmp(&a.updated_at)));
+        sort(&mut notes, self.order.as_ref());
         notes
+    }
+
+    pub fn order(&self) -> Option<&NoteOrder> {
+        self.order.as_ref()
+    }
+
+    /// Moves a note to just before `before` (the end when `None`), as shown.
+    /// Returns whether the order changed.
+    pub fn move_note(&mut self, id: &str, before: Option<&str>) -> io::Result<bool> {
+        let shown: Vec<String> = self.visible().into_iter().map(|note| note.id).collect();
+        if !shown.iter().any(|other| other == id) {
+            return Ok(false);
+        }
+        let ids = moved(&shown, id, before);
+        if ids == shown && self.order.is_some() {
+            return Ok(false);
+        }
+        let synced_rev = self.order.as_ref().and_then(|order| order.synced_rev.clone());
+        self.order = Some(NoteOrder { synced_rev, ..NoteOrder::new(ids, &self.device_id, (self.clock)()) });
+        self.persist()?;
+        Ok(true)
+    }
+
+    /// Applies the order a finished sync agreed on, unless the user reordered
+    /// while it ran; the next sync then uploads that newer order.
+    pub fn apply_order(&mut self, merged: Option<NoteOrder>, rev_at_start: Option<&str>) -> io::Result<()> {
+        if self.order.as_ref().map(|order| order.rev.as_str()) != rev_at_start || merged.is_none() {
+            return Ok(());
+        }
+        self.order = merged;
+        self.persist()
     }
 
     pub fn get(&self, id: &str) -> Option<&Note> {
@@ -231,11 +268,14 @@ impl NoteStore {
     fn persist(&self) -> io::Result<()> {
         let mut notes: Vec<&Note> = self.notes.values().collect();
         notes.sort_by(|a, b| a.created_at.cmp(&b.created_at).then(a.id.cmp(&b.id)));
-        let state = serde_json::json!({
+        let mut state = serde_json::json!({
             "version": FORMAT_VERSION,
             "deviceId": self.device_id,
             "notes": notes,
         });
+        if let Some(order) = &self.order {
+            state["order"] = serde_json::to_value(order)?;
+        }
         if let Some(dir) = self.path.parent() {
             fs::create_dir_all(dir)?;
         }
@@ -552,5 +592,67 @@ mod tests {
         let mut store = open(&folder);
         assert!(!store.edit_text("missing", "", "x".into()).unwrap());
         assert!(store.all().is_empty());
+    }
+
+    fn shown(store: &NoteStore) -> Vec<String> {
+        store.visible().into_iter().map(|note| note.text).collect()
+    }
+
+    #[test]
+    fn a_dragged_order_is_shown_and_survives_a_restart() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let a = store.create("a", 0).unwrap();
+        store.create("b", 0).unwrap();
+        let c = store.create("c", 0).unwrap();
+        assert_eq!(shown(&store), ["c", "b", "a"]);
+        assert!(store.move_note(&a.id, Some(&c.id)).unwrap());
+        assert_eq!(shown(&store), ["a", "c", "b"]);
+        assert_eq!(shown(&open(&folder)), ["a", "c", "b"]);
+        assert!(!store.move_note(&a.id, Some(&c.id)).unwrap(), "already there");
+        assert!(!store.move_note("missing", None).unwrap());
+    }
+
+    #[test]
+    fn after_a_reorder_a_new_note_still_appears_at_the_top() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let a = store.create("a", 0).unwrap();
+        store.create("b", 0).unwrap();
+        store.move_note(&a.id, None).unwrap();
+        store.create("new", 0).unwrap();
+        assert_eq!(shown(&store), ["new", "b", "a"]);
+    }
+
+    #[test]
+    fn pinned_notes_stay_first_whatever_the_order() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let a = store.create("a", 0).unwrap();
+        let b = store.create("b", 0).unwrap();
+        store.update(&b.id, Change { pinned: Some(true), ..Change::default() }).unwrap();
+        store.move_note(&b.id, None).unwrap();
+        assert_eq!(shown(&store)[0], "b");
+        let _ = a;
+    }
+
+    #[test]
+    fn a_synced_order_is_applied_unless_the_user_reordered_meanwhile() {
+        let folder = Folder::new();
+        let mut store = open(&folder);
+        let a = store.create("a", 0).unwrap();
+        let b = store.create("b", 0).unwrap();
+        store.move_note(&a.id, None).unwrap();
+        let at_start = store.order().unwrap().rev.clone();
+        let from_server = NoteOrder::new(vec![b.id.clone(), a.id.clone()], "z", DateTime::parse_from_rfc3339("2026-11-08T00:00:00Z").unwrap().with_timezone(&Utc));
+        // Reordered while the sync ran: keeps the newer local order.
+        store.move_note(&b.id, None).unwrap();
+        store.apply_order(Some(from_server.clone()), Some(&at_start)).unwrap();
+        assert_eq!(shown(&store), ["a", "b"]);
+        // Not reordered meanwhile: takes the synced order.
+        let now = store.order().unwrap().rev.clone();
+        store.apply_order(Some(from_server.clone()), Some(&now)).unwrap();
+        assert_eq!(shown(&store), ["b", "a"]);
+        assert_eq!(shown(&open(&folder)), ["b", "a"]);
     }
 }

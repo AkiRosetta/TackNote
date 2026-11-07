@@ -7,6 +7,7 @@ import {
   colorClass,
   columnCountFor,
   distribute,
+  dropBefore,
   insertCheckbox,
   matches,
   normalTheme,
@@ -40,6 +41,21 @@ test('an unknown or missing theme follows the system', () => {
   assert.equal(normalTheme('light'), 'light');
   assert.equal(normalTheme(null), 'system');
   assert.equal(normalTheme('blue'), 'system');
+});
+
+test('a dragged card lands before the card under it, or after its lower half', () => {
+  const notes = [
+    { id: 'p1', pinned: true }, { id: 'p2', pinned: true },
+    { id: 'a', pinned: false }, { id: 'b', pinned: false }, { id: 'c', pinned: false },
+  ];
+  assert.equal(dropBefore(notes, 'c', 'a', false), 'a');
+  assert.equal(dropBefore(notes, 'a', 'b', true), 'c');
+  assert.equal(dropBefore(notes, 'a', 'c', true), null, 'after the last card is the end');
+  assert.equal(dropBefore(notes, 'b', 'a', true), 'c', 'skips the dragged card itself');
+  assert.equal(dropBefore(notes, 'p1', 'p2', true), 'a', 'after the last pinned note');
+  assert.equal(dropBefore(notes, 'a', 'p2', false), undefined, 'not into the pinned group');
+  assert.equal(dropBefore(notes, 'p1', 'a', false), undefined, 'not out of it');
+  assert.equal(dropBefore(notes, 'a', 'a', false), undefined, 'not onto itself');
 });
 
 test('search ignores case and surrounding spaces', () => {

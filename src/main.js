@@ -7,6 +7,7 @@ import {
   colorClass,
   columnCountFor,
   distribute,
+  dropBefore,
   insertCheckbox,
   matches,
   normalTheme,
@@ -91,6 +92,11 @@ async function loadNotes() {
 }
 
 function renderHome() {
+  // Redrawing would pull the card out from under the finger.
+  if (drag?.started) {
+    drag.redraw = true;
+    return;
+  }
   const notes = state.notes.filter((note) => matches(note, state.query));
   const searching = state.query.trim() !== '';
   $('empty').hidden = notes.length > 0;
@@ -154,7 +160,13 @@ function activateCard(target) {
   }
 }
 
-$('notes').addEventListener('click', (event) => activateCard(event.target));
+$('notes').addEventListener('click', (event) => {
+  if (draggedJustNow) {
+    draggedJustNow = false;
+    return;
+  }
+  activateCard(event.target);
+});
 $('notes').addEventListener('keydown', (event) => {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault();
@@ -171,6 +183,127 @@ window.addEventListener('resize', () => {
   const count = columnCountFor($('notes').clientWidth || window.innerWidth);
   if (count !== columnCount && !$('home').hidden) renderHome();
   columnCount = count;
+});
+
+// ---- Dragging cards to reorder ----
+// A mouse drags once it moves a little; a finger holds still first, so a
+// swipe still scrolls the list.
+
+const HOLD_TO_DRAG = 450;
+const SLOP = 8;
+let drag = null;
+let draggedJustNow = false;
+
+function pickUp(target, x, y, touch) {
+  if (state.query.trim() !== '' || target.closest('.check-line')) return null;
+  const card = target.closest('.card');
+  return card ? { id: card.dataset.id, card, startX: x, startY: y, touch, started: false } : null;
+}
+
+function startDrag(current) {
+  current.started = true;
+  const rect = current.card.getBoundingClientRect();
+  current.offsetX = current.startX - rect.left;
+  current.offsetY = current.startY - rect.top;
+  current.ghost = current.card.cloneNode(true);
+  current.ghost.classList.add('drag-ghost');
+  current.ghost.style.width = `${rect.width}px`;
+  document.body.append(current.ghost);
+  current.card.classList.add('dragging');
+  moveGhost(current, current.startX, current.startY);
+  navigator.vibrate?.(15);
+}
+
+function moveGhost(current, x, y) {
+  current.ghost.style.transform = `translate(${x - current.offsetX}px, ${y - current.offsetY}px)`;
+}
+
+function dragTo(current, x, y) {
+  moveGhost(current, x, y);
+  const list = $('notes');
+  const box = list.getBoundingClientRect();
+  if (y < box.top + 48) list.scrollTop -= 12;
+  else if (y > box.bottom - 48) list.scrollTop += 12;
+  current.marked?.classList.remove('drop-before', 'drop-after');
+  current.marked = null;
+  current.before = undefined;
+  const under = document.elementFromPoint(x, y)?.closest('.card');
+  if (!under || under === current.card || under.classList.contains('drag-ghost')) return;
+  const rect = under.getBoundingClientRect();
+  const lower = y > rect.top + rect.height / 2;
+  current.before = dropBefore(state.notes, current.id, under.dataset.id, lower);
+  if (current.before === undefined) return;
+  current.marked = under;
+  under.classList.add(lower ? 'drop-after' : 'drop-before');
+}
+
+function endDrag(current, drop) {
+  clearTimeout(current.timer);
+  if (!current.started) return;
+  draggedJustNow = true;
+  setTimeout(() => { draggedJustNow = false; }, 400);
+  current.ghost.remove();
+  current.card.classList.remove('dragging');
+  current.marked?.classList.remove('drop-before', 'drop-after');
+  if (drop && current.before !== undefined) {
+    invoke('move_note', { id: current.id, before: current.before }).catch(reportError);
+  }
+  if (current.redraw) renderHome();
+}
+
+$('notes').addEventListener('mousedown', (event) => {
+  if (event.button === 0) drag = pickUp(event.target, event.clientX, event.clientY, false);
+});
+window.addEventListener('mousemove', (event) => {
+  if (!drag || drag.touch) return;
+  if (!drag.started) {
+    if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < SLOP) return;
+    startDrag(drag);
+  }
+  event.preventDefault();
+  dragTo(drag, event.clientX, event.clientY);
+});
+window.addEventListener('mouseup', () => {
+  if (!drag || drag.touch) return;
+  endDrag(drag, true);
+  drag = null;
+});
+
+$('notes').addEventListener('touchstart', (event) => {
+  if (event.touches.length !== 1) return;
+  const touch = event.touches[0];
+  drag = pickUp(event.target, touch.clientX, touch.clientY, true);
+  if (!drag) return;
+  const current = drag;
+  current.timer = setTimeout(() => {
+    if (drag === current) startDrag(current);
+  }, HOLD_TO_DRAG);
+}, { passive: true });
+$('notes').addEventListener('touchmove', (event) => {
+  if (!drag?.touch) return;
+  const touch = event.touches[0];
+  if (!drag.started) {
+    // Moved before the hold finished: this is a scroll.
+    if (Math.hypot(touch.clientX - drag.startX, touch.clientY - drag.startY) > SLOP) {
+      clearTimeout(drag.timer);
+      drag = null;
+    }
+    return;
+  }
+  event.preventDefault();
+  dragTo(drag, touch.clientX, touch.clientY);
+}, { passive: false });
+for (const type of ['touchend', 'touchcancel']) {
+  $('notes').addEventListener(type, (event) => {
+    if (!drag?.touch) return;
+    if (drag.started) event.preventDefault();
+    endDrag(drag, type === 'touchend');
+    drag = null;
+  });
+}
+// A long press would otherwise open the text menu on phones.
+$('notes').addEventListener('contextmenu', (event) => {
+  if (event.target.closest('.card')) event.preventDefault();
 });
 
 $('new-note').addEventListener('click', async () => {

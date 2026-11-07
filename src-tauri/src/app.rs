@@ -313,6 +313,17 @@ fn update_note(
     Ok(changed)
 }
 
+/// Moves a note to just before `before`, or to the end, as the user dragged it.
+#[tauri::command]
+fn move_note(app: AppHandle, window: WebviewWindow, state: State<AppState>, id: String, before: Option<String>) -> Result<bool, CommandError> {
+    let core = state.core()?;
+    let changed = core.notes().move_note(&id, before.as_deref()).map_err(|e| error(ErrorKind::Storage, e))?;
+    if changed {
+        core.changed(&app, &window);
+    }
+    Ok(changed)
+}
+
 #[tauri::command]
 fn toggle_checkbox(app: AppHandle, window: WebviewWindow, state: State<AppState>, id: String, line: usize) -> Result<bool, CommandError> {
     let core = state.core()?;
@@ -593,6 +604,7 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
         edit_text,
         update_note,
         toggle_checkbox,
+        move_note,
         delete_note,
         discard_if_empty,
         get_settings,
