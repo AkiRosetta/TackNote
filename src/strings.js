@@ -17,7 +17,7 @@ export const t = {
   pin: pick('置顶', 'Pin'),
   unpin: pick('取消置顶', 'Unpin'),
   delete: pick('删除', 'Delete'),
-  addCheckbox: pick('添加待办', 'Add checkbox'),
+  addCheckbox: pick('设为待办 / 取消待办', 'Make a to-do / plain line'),
   stickNote: pick('贴到桌面', 'Stick on desktop'),
   showInWidget: pick('显示在小组件上', 'Show on widget'),
   addWidgetByHand: pick(

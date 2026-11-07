@@ -113,6 +113,9 @@ export async function run({ invoke, mode }) {
     check(box().selectionStart === 1, 'the caret stays where it was');
     fill(box(), `${box().value}\n葡萄`);
     $('#add-checkbox').click();
+    $('#add-checkbox').click();
+    check(box().value.endsWith('\n葡萄'), 'pressing the to-do button twice gives back a plain line');
+    $('#add-checkbox').click();
     check(
       await until(async () => (await saved(id)) === '买牛奶和面包\n[ ] 鸡蛋\n[ ] 葡萄'),
       'typing after a sync keeps the synced text, and the checkbox button adds a to-do',
@@ -134,7 +137,12 @@ export async function run({ invoke, mode }) {
     const card = () => $(`.card[data-id="${id}"]`);
     check(card()?.classList.contains('color-2') && !!card().querySelector('.pin-mark'), 'the card shows its colour and pin');
 
-    card().querySelector('.check-line').click();
+    card().querySelector('.check-line span').click();
+    check(await until(() => shown('editor')), 'tapping the text of a to-do opens the note');
+    check(!(await saved(id)).includes('[x] 鸡蛋'), 'and does not tick it');
+    $('#editor-back').click();
+    await until(() => shown('home') && card());
+    card().querySelector('.check-box').click();
     check(await until(async () => (await saved(id))?.includes('[x] 鸡蛋')), 'ticking a to-do on the card saves it');
     check(await until(() => card()?.querySelector('.check-line.checked')), 'the card shows the tick');
 

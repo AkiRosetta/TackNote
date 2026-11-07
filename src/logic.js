@@ -55,12 +55,20 @@ export function matches(note, query) {
   return wanted === '' || note.text.toLowerCase().includes(wanted);
 }
 
-/** Puts `[ ] ` at the start of the caret's line; the caret moves with it. */
-export function insertCheckbox(text, caret) {
+/**
+ * Makes the caret's line a to-do, or a plain line again if it already is
+ * one, so pressing the button twice undoes it. The caret moves with its text.
+ */
+export function toggleTodo(text, caret) {
   const at = Math.min(Math.max(caret, 0), text.length);
   const lineStart = text.lastIndexOf('\n', at - 1) + 1;
-  const mark = '[ ] ';
-  return { text: text.slice(0, lineStart) + mark + text.slice(lineStart), caret: at + mark.length };
+  // The same rule as the Rust side: optional spaces, [ ], [x] or [X], one space.
+  const mark = /^\s*\[( |x|X)\] ?/.exec(text.slice(lineStart));
+  if (mark) {
+    const end = lineStart + mark[0].length;
+    return { text: text.slice(0, lineStart) + text.slice(end), caret: Math.max(lineStart, at - mark[0].length) };
+  }
+  return { text: text.slice(0, lineStart) + '[ ] ' + text.slice(lineStart), caret: at + 4 };
 }
 
 /**

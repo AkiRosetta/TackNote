@@ -8,7 +8,7 @@ import {
   columnCountFor,
   distribute,
   dropBefore,
-  insertCheckbox,
+  toggleTodo,
   matches,
   normalTheme,
 } from '../src/logic.js';
@@ -66,9 +66,18 @@ test('search ignores case and surrounding spaces', () => {
 });
 
 test('a checkbox goes to the start of the caret line', () => {
-  assert.deepEqual(insertCheckbox('one\ntwo', 5), { text: 'one\n[ ] two', caret: 9 });
-  assert.deepEqual(insertCheckbox('', 0), { text: '[ ] ', caret: 4 });
-  assert.deepEqual(insertCheckbox('one', 99), { text: '[ ] one', caret: 7 });
+  assert.deepEqual(toggleTodo('one\ntwo', 5), { text: 'one\n[ ] two', caret: 9 });
+  assert.deepEqual(toggleTodo('', 0), { text: '[ ] ', caret: 4 });
+  assert.deepEqual(toggleTodo('one', 99), { text: '[ ] one', caret: 7 });
+});
+
+test('pressing the to-do button on a to-do makes it a plain line again', () => {
+  assert.deepEqual(toggleTodo('one\n[ ] two', 9), { text: 'one\ntwo', caret: 5 });
+  assert.deepEqual(toggleTodo('[x] done', 8), { text: 'done', caret: 4 });
+  assert.deepEqual(toggleTodo('  [X] 买菜', 2), { text: '买菜', caret: 0 });
+  // Twice in a row is back where it started.
+  const once = toggleTodo('milk', 4);
+  assert.deepEqual(toggleTodo(once.text, once.caret), { text: 'milk', caret: 4 });
 });
 
 test('the caret keeps its place when text changes before or after it', () => {

@@ -8,7 +8,7 @@ import {
   columnCountFor,
   distribute,
   dropBefore,
-  insertCheckbox,
+  toggleTodo,
   matches,
   normalTheme,
 } from './logic.js';
@@ -135,13 +135,17 @@ function card(note) {
       row.className = 'card-line';
       row.textContent = line.text;
     } else {
+      // Only the box ticks; the text opens the note like the rest of the card.
       row.className = line.checked ? 'check-line checked' : 'check-line';
-      row.dataset.line = index;
-      row.tabIndex = 0;
-      row.setAttribute('role', 'checkbox');
-      row.setAttribute('aria-checked', String(line.checked));
-      row.innerHTML = icon(line.checked ? 'checked' : 'unchecked');
-      row.append(Object.assign(document.createElement('span'), { textContent: line.text }));
+      const box = document.createElement('button');
+      box.type = 'button';
+      box.className = 'check-box';
+      box.dataset.line = index;
+      box.setAttribute('role', 'checkbox');
+      box.setAttribute('aria-checked', String(line.checked));
+      box.setAttribute('aria-label', line.text);
+      box.innerHTML = icon(line.checked ? 'checked' : 'unchecked');
+      row.append(box, Object.assign(document.createElement('span'), { textContent: line.text }));
     }
     el.append(row);
   });
@@ -150,7 +154,7 @@ function card(note) {
 }
 
 function activateCard(target) {
-  const line = target.closest('.check-line');
+  const line = target.closest('.check-box');
   const found = target.closest('.card');
   if (!found) return;
   if (line) {
@@ -195,7 +199,7 @@ let drag = null;
 let draggedJustNow = false;
 
 function pickUp(target, x, y, touch) {
-  if (state.query.trim() !== '' || target.closest('.check-line')) return null;
+  if (state.query.trim() !== '' || target.closest('.check-box')) return null;
   const card = target.closest('.card');
   return card ? { id: card.dataset.id, card, startX: x, startY: y, touch, started: false } : null;
 }
@@ -423,7 +427,7 @@ $('stick-note').addEventListener('click', async () => {
 });
 
 $('add-checkbox').addEventListener('click', () => {
-  const { text, caret } = insertCheckbox(box.value, box.selectionStart);
+  const { text, caret } = toggleTodo(box.value, box.selectionStart);
   box.value = text;
   box.focus();
   box.setSelectionRange(caret, caret);

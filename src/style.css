@@ -190,8 +190,17 @@ button { cursor: pointer; }
   padding: 2px 0;
   border-radius: 4px;
 }
-.check-line:hover { background: var(--hover); }
-.check-line .icon { width: 18px; height: 18px; margin-top: 2px; }
+.check-box {
+  flex: none;
+  display: inline-flex;
+  margin: -3px 0 -3px -4px;
+  padding: 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+}
+.check-box:hover { background: var(--hover); }
+.check-box .icon { width: 18px; height: 18px; }
 .check-line.checked span { text-decoration: line-through; opacity: 0.6; }
 
 .empty {
