@@ -1,3 +1,4 @@
+import { makeLineEditor } from './editor.js';
 import { applyTheme, fillPage, isPhone, replaceText, retry, saveTheme, savedTheme, setLabel, toast } from './common.js';
 import { icon } from './icons.js';
 import {
@@ -402,7 +403,11 @@ $('settings-button').addEventListener('click', () => navigate('#/settings'));
 
 // ---- Editor ----
 
-const box = $('note-text');
+const box = makeLineEditor($('note-text'), t.placeholder);
+// Toolbar buttons keep the caret in the note instead of taking focus.
+for (const button of $('editor').querySelectorAll('.bar button')) {
+  button.addEventListener('mousedown', (event) => event.preventDefault());
+}
 
 for (let index = 0; index < COLOR_COUNT; index++) {
   const swatch = document.createElement('button');

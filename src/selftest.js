@@ -104,6 +104,20 @@ export async function run({ invoke, mode }) {
     const id = decodeURIComponent(location.hash.split('/')[2]);
     fill(box(), '买牛奶\n[ ] 鸡蛋');
     check(await until(async () => (await saved(id)) === '买牛奶\n[ ] 鸡蛋'), 'typing is saved');
+    check(!box().innerText.includes('[ ]') && Boolean(box().querySelector('.ed-box')), 'the editor shows a to-do as a box, not brackets');
+    box().querySelector('.ed-box').click();
+    check(await until(async () => (await saved(id)) === '买牛奶\n[x] 鸡蛋'), 'tapping the box in the editor ticks it');
+    box().querySelector('.ed-box').click();
+    check(await until(async () => (await saved(id)) === '买牛奶\n[ ] 鸡蛋'), 'and tapping it again unticks it');
+    box().focus();
+    box().setSelectionRange(box().value.length);
+    const key = (inputType) => box().dispatchEvent(new InputEvent('beforeinput', { inputType, bubbles: true, cancelable: true }));
+    key('insertParagraph');
+    check(box().value === '买牛奶\n[ ] 鸡蛋\n[ ] ', 'Enter on a to-do starts another');
+    key('insertParagraph');
+    check(box().value === '买牛奶\n[ ] 鸡蛋\n', 'Enter on an empty to-do ends the list');
+    key('deleteContentBackward');
+    check(await until(async () => (await saved(id)) === '买牛奶\n[ ] 鸡蛋'), 'Backspace at a line start joins it to the line above');
 
     // Rule 5: a change brought by a sync shows in the open editor.
     box().focus();

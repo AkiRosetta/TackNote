@@ -3,6 +3,7 @@
 
 import { applyTheme, fillPage, replaceText, retry, savedTheme, setLabel, toast } from './common.js';
 import { icon } from './icons.js';
+import { makeLineEditor } from './editor.js';
 import { EditorSync, colorClass } from './logic.js';
 import { t } from './strings.js';
 
@@ -10,7 +11,7 @@ const { invoke } = window.__TAURI__.core;
 const { listen } = window.__TAURI__.event;
 const id = window.__TAURI__.window.getCurrentWindow().label.replace(/^sticky-/, '');
 
-const box = document.getElementById('sticky-text');
+const box = makeLineEditor(document.getElementById('sticky-text'), t.placeholder);
 const onTopButton = document.getElementById('keep-on-top');
 const closeButton = document.getElementById('close-sticky');
 let editor = null;

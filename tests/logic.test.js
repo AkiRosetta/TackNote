@@ -10,6 +10,11 @@ import {
   dropBefore,
   moveId,
   toggleTodo,
+  todoLines,
+  todoText,
+  enterAt,
+  backspaceAt,
+  toggleDone,
   matches,
   normalTheme,
 } from '../src/logic.js';
@@ -63,6 +68,36 @@ test('moving an id puts it before another, or at the end', () => {
   assert.deepEqual(moveId(['a', 'b', 'c', 'd'], 'd', 'b'), ['a', 'd', 'b', 'c']);
   assert.deepEqual(moveId(['a', 'b', 'c'], 'a', null), ['b', 'c', 'a']);
   assert.deepEqual(moveId(['a', 'b', 'c'], 'a', 'gone'), ['b', 'c', 'a']);
+});
+
+test('to-do lines are read like the Rust side and written back in one form', () => {
+  assert.deepEqual(todoLines('a\n[ ] b\n  [X]c'), [
+    { todo: false, checked: false, text: 'a' },
+    { todo: true, checked: false, text: 'b' },
+    { todo: true, checked: true, text: 'c' },
+  ]);
+  assert.equal(todoText(todoLines('a\n[ ] b\n  [X]c')), 'a\n[ ] b\n[x] c');
+  assert.equal(todoText(todoLines('')), '');
+});
+
+test('Enter on a to-do starts another, and on an empty one ends the list', () => {
+  assert.deepEqual(enterAt('[ ] milk', 8, 8), { text: '[ ] milk\n[ ] ', caret: 13 });
+  assert.deepEqual(enterAt('[ ] milk\n[ ] ', 13, 13), { text: '[ ] milk\n', caret: 9 });
+  assert.deepEqual(enterAt('title', 2, 2), { text: 'ti\ntle', caret: 3 });
+  assert.deepEqual(enterAt('abcdef', 1, 4), { text: 'a\nef', caret: 2 });
+});
+
+test('Backspace at the start of a to-do removes the box, then joins lines', () => {
+  assert.deepEqual(backspaceAt('a\n[ ] b', 6), { text: 'a\nb', caret: 2 });
+  assert.deepEqual(backspaceAt('a\nb', 2), { text: 'ab', caret: 1 });
+  assert.deepEqual(backspaceAt('ab', 0), { text: 'ab', caret: 0 });
+  assert.equal(backspaceAt('a\n[ ] bc', 7), null, 'inside the text: an ordinary delete');
+});
+
+test('ticking a box changes only that line', () => {
+  assert.equal(toggleDone('a\n[ ] b\n[x] c', 1), 'a\n[x] b\n[x] c');
+  assert.equal(toggleDone('a\n[ ] b\n[x] c', 2), 'a\n[ ] b\n[ ] c');
+  assert.equal(toggleDone('a', 0), 'a');
 });
 
 test('search ignores case and surrounding spaces', () => {

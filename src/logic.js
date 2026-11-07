@@ -63,6 +63,66 @@ export function matches(note, query) {
   return wanted === '' || note.text.toLowerCase().includes(wanted);
 }
 
+// To-do lines, the same rule as the Rust side: optional spaces, [ ], [x] or
+// [X], then one optional space. The editor shows a box in their place.
+const TODO_MARK = /^\s*\[( |x|X)\] ?/;
+
+export function todoLines(text) {
+  return text.split('\n').map((line) => {
+    const mark = TODO_MARK.exec(line);
+    return mark
+      ? { todo: true, checked: mark[1] !== ' ', text: line.slice(mark[0].length) }
+      : { todo: false, checked: false, text: line };
+  });
+}
+
+/** The note text for these lines, with every to-do written as `[ ] ` or `[x] `. */
+export function todoText(lines) {
+  return lines.map((line) => (line.todo ? (line.checked ? '[x] ' : '[ ] ') : '') + line.text).join('\n');
+}
+
+function lineAround(text, offset) {
+  const start = text.lastIndexOf('\n', offset - 1) + 1;
+  const next = text.indexOf('\n', offset);
+  const line = text.slice(start, next === -1 ? text.length : next);
+  const mark = TODO_MARK.exec(line);
+  return { start, line, markLength: mark ? mark[0].length : 0 };
+}
+
+/**
+ * Enter: a new line, which is a to-do too when pressed on one. Enter on an
+ * empty to-do makes it a plain line instead, the usual way out of a list.
+ */
+export function enterAt(text, start, end) {
+  const { start: lineStart, line, markLength } = lineAround(text, start);
+  if (markLength && start === end && line.slice(markLength).trim() === '') {
+    return { text: text.slice(0, lineStart) + text.slice(lineStart + markLength), caret: lineStart };
+  }
+  const inserted = markLength ? '\n[ ] ' : '\n';
+  return { text: text.slice(0, start) + inserted + text.slice(end), caret: start + inserted.length };
+}
+
+/**
+ * Backspace at the start of a line's text: a to-do loses its box first, a
+ * plain line joins the line above. Anywhere else it is an ordinary delete,
+ * left to the editor: returns null.
+ */
+export function backspaceAt(text, caret) {
+  const { start, markLength } = lineAround(text, caret);
+  if (caret !== start + markLength) return null;
+  if (markLength) return { text: text.slice(0, start) + text.slice(start + markLength), caret: start };
+  if (start === 0) return { text, caret: 0 };
+  return { text: text.slice(0, start - 1) + text.slice(start), caret: start - 1 };
+}
+
+/** Ticks or unticks the to-do on line `index`; other lines keep their text. */
+export function toggleDone(text, index) {
+  const lines = todoLines(text);
+  if (!lines[index]?.todo) return text;
+  lines[index] = { ...lines[index], checked: !lines[index].checked };
+  return todoText(lines);
+}
+
 /**
  * Makes the caret's line a to-do, or a plain line again if it already is
  * one, so pressing the button twice undoes it. The caret moves with its text.
