@@ -1,0 +1,10 @@
+{
+  "identifier": "default",
+  "description": "Every window may call the app's commands, listen to its events, drag itself and close.",
+  "windows": ["*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-start-dragging",
+    "core:window:allow-close"
+  ]
+}
