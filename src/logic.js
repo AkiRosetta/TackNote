@@ -50,6 +50,14 @@ export function dropBefore(notes, draggedId, targetId, lowerHalf) {
   return next ? next.id : null;
 }
 
+/** `ids` with `id` moved to just before `before`, or to the end for `null`. */
+export function moveId(ids, id, before) {
+  const rest = ids.filter((other) => other !== id);
+  const at = before === null ? rest.length : rest.indexOf(before);
+  rest.splice(at < 0 ? rest.length : at, 0, id);
+  return rest;
+}
+
 export function matches(note, query) {
   const wanted = query.trim().toLowerCase();
   return wanted === '' || note.text.toLowerCase().includes(wanted);

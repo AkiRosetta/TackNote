@@ -310,9 +310,20 @@ export async function run({ invoke, mode }) {
         window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: x, clientY: y }));
         await wait(20);
       }
-      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, clientX: x1, clientY: y1 }));
+      // Cards slide while dragging, so follow the target to where it is now.
+      for (let round = 0; round < 3; round++) {
+        await wait(250);
+        const now = to.getBoundingClientRect();
+        const y = lowerHalf ? now.bottom - 4 : now.top + 4;
+        window.dispatchEvent(new MouseEvent('mousemove', { bubbles: true, clientX: now.left + now.width / 2, clientY: y }));
+      }
+      await wait(250);
+      const preview = [...document.querySelectorAll('.card:not(.drag-ghost)')].map((el) => el.dataset.id);
+      window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      return preview.filter((noteId) => made.includes(noteId));
     }
-    await dragCard(cardOf(jia), cardOf(bing), false);
+    const preview = await dragCard(cardOf(jia), cardOf(bing), false);
+    check(preview.join() === [jia, bing, yi].join(), 'the other cards move aside while dragging, before letting go');
     check(
       await until(async () => (await listed()).join() === [jia, bing, yi].join()),
       'dragging the bottom card onto the top one puts it first',
@@ -324,7 +335,8 @@ export async function run({ invoke, mode }) {
     }), 'the list shows the new order');
     await invoke('update_note', { id: bing, pinned: true });
     await until(() => cardOf(bing)?.querySelector('.pin-mark'));
-    await dragCard(cardOf(yi), cardOf(bing), false);
+    // Jia sits next to the pinned card, so the drag crosses no other card.
+    await dragCard(cardOf(jia), cardOf(bing), false);
     await wait(300);
     check((await listed()).join() === [bing, jia, yi].join(), 'a card cannot be dragged among the pinned notes');
 

@@ -8,6 +8,7 @@ import {
   columnCountFor,
   distribute,
   dropBefore,
+  moveId,
   toggleTodo,
   matches,
   normalTheme,
@@ -206,6 +207,8 @@ function pickUp(target, x, y, touch) {
 
 function startDrag(current) {
   current.started = true;
+  current.order = state.notes.map((note) => note.id);
+  current.settleUntil = 0;
   const rect = current.card.getBoundingClientRect();
   current.offsetX = current.startX - rect.left;
   current.offsetY = current.startY - rect.top;
@@ -222,37 +225,74 @@ function moveGhost(current, x, y) {
   current.ghost.style.transform = `translate(${x - current.offsetX}px, ${y - current.offsetY}px)`;
 }
 
+/** Lays the cards out in `order`, sliding each from where it was. */
+function layoutCards(order) {
+  const container = $('notes');
+  const cards = new Map([...container.querySelectorAll('.card')].map((el) => [el.dataset.id, el]));
+  const was = new Map([...cards].map(([id, el]) => [id, el.getBoundingClientRect()]));
+  const byId = new Map(state.notes.map((note) => [note.id, note]));
+  const notes = order.map((id) => byId.get(id)).filter(Boolean);
+  const scroll = container.scrollTop;
+  container.replaceChildren(
+    ...distribute(notes, columnCountFor(container.clientWidth || window.innerWidth)).map((column) => {
+      const el = document.createElement('div');
+      el.className = 'column';
+      el.append(...column.map((note) => cards.get(note.id)).filter(Boolean));
+      return el;
+    }),
+  );
+  container.scrollTop = scroll;
+  for (const [id, el] of cards) {
+    const now = el.getBoundingClientRect();
+    const dx = was.get(id).left - now.left;
+    const dy = was.get(id).top - now.top;
+    if (!dx && !dy) continue;
+    el.style.transition = 'none';
+    el.style.transform = `translate(${dx}px, ${dy}px)`;
+    el.getBoundingClientRect();
+    el.style.transition = 'transform 180ms ease';
+    el.style.transform = '';
+  }
+}
+
+/** Every card moves to where it would be, as soon as the finger is over another card. */
 function dragTo(current, x, y) {
   moveGhost(current, x, y);
   const list = $('notes');
   const box = list.getBoundingClientRect();
   if (y < box.top + 48) list.scrollTop -= 12;
   else if (y > box.bottom - 48) list.scrollTop += 12;
-  current.marked?.classList.remove('drop-before', 'drop-after');
-  current.marked = null;
-  current.before = undefined;
+  // Cards still sliding are not where they will be; wait for them.
+  if (performance.now() < current.settleUntil) return;
   const under = document.elementFromPoint(x, y)?.closest('.card');
   if (!under || under === current.card || under.classList.contains('drag-ghost')) return;
   const rect = under.getBoundingClientRect();
-  const lower = y > rect.top + rect.height / 2;
-  current.before = dropBefore(state.notes, current.id, under.dataset.id, lower);
-  if (current.before === undefined) return;
-  current.marked = under;
-  under.classList.add(lower ? 'drop-after' : 'drop-before');
+  const byId = new Map(state.notes.map((note) => [note.id, note]));
+  const notes = current.order.map((id) => byId.get(id));
+  const before = dropBefore(notes, current.id, under.dataset.id, y > rect.top + rect.height / 2);
+  if (before === undefined) return;
+  const order = moveId(current.order, current.id, before);
+  if (order.join() === current.order.join()) return;
+  current.order = order;
+  current.settleUntil = performance.now() + 200;
+  layoutCards(order);
 }
 
 function endDrag(current, drop) {
   clearTimeout(current.timer);
   if (!current.started) return;
+  current.started = false;
   draggedJustNow = true;
   setTimeout(() => { draggedJustNow = false; }, 400);
   current.ghost.remove();
   current.card.classList.remove('dragging');
-  current.marked?.classList.remove('drop-before', 'drop-after');
-  if (drop && current.before !== undefined) {
-    invoke('move_note', { id: current.id, before: current.before }).catch(reportError);
+  const changed = current.order.join() !== state.notes.map((note) => note.id).join();
+  if (drop && changed) {
+    const before = current.order[current.order.indexOf(current.id) + 1] ?? null;
+    invoke('move_note', { id: current.id, before }).catch(reportError);
+  } else if (changed || current.redraw) {
+    renderHome();
   }
-  if (current.redraw) renderHome();
 }
 
 $('notes').addEventListener('mousedown', (event) => {

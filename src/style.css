@@ -162,8 +162,6 @@ button { cursor: pointer; }
 .card:hover { filter: brightness(0.98); }
 .card { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 .card.dragging { opacity: 0.35; }
-.card.drop-before { box-shadow: 0 -4px 0 0 var(--accent), var(--shadow); }
-.card.drop-after { box-shadow: 0 4px 0 0 var(--accent), var(--shadow); }
 .drag-ghost {
   position: fixed;
   left: 0;

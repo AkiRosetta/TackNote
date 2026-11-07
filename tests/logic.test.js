@@ -8,6 +8,7 @@ import {
   columnCountFor,
   distribute,
   dropBefore,
+  moveId,
   toggleTodo,
   matches,
   normalTheme,
@@ -56,6 +57,12 @@ test('a dragged card lands before the card under it, or after its lower half', (
   assert.equal(dropBefore(notes, 'a', 'p2', false), undefined, 'not into the pinned group');
   assert.equal(dropBefore(notes, 'p1', 'a', false), undefined, 'not out of it');
   assert.equal(dropBefore(notes, 'a', 'a', false), undefined, 'not onto itself');
+});
+
+test('moving an id puts it before another, or at the end', () => {
+  assert.deepEqual(moveId(['a', 'b', 'c', 'd'], 'd', 'b'), ['a', 'd', 'b', 'c']);
+  assert.deepEqual(moveId(['a', 'b', 'c'], 'a', null), ['b', 'c', 'a']);
+  assert.deepEqual(moveId(['a', 'b', 'c'], 'a', 'gone'), ['b', 'c', 'a']);
 });
 
 test('search ignores case and surrounding spaces', () => {
