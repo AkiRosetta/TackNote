@@ -101,6 +101,13 @@ export async function run({ invoke, mode }) {
 
     $('#new-note').click();
     check(await until(() => shown('editor')), 'the new-note button opens the editor');
+    // An empty note: the editor sits in its place and nothing covers the colours.
+    check(getComputedStyle(box()).position !== 'absolute' && box().getBoundingClientRect().top < 120, 'an empty note shows its editor at the top');
+    const swatch = $('#colors [data-color="1"]').getBoundingClientRect();
+    check(
+      document.elementFromPoint(swatch.left + swatch.width / 2, swatch.top + swatch.height / 2) === $('#colors [data-color="1"]'),
+      'the colours can be tapped in an empty note',
+    );
     const id = decodeURIComponent(location.hash.split('/')[2]);
     fill(box(), '买牛奶\n[ ] 鸡蛋');
     check(await until(async () => (await saved(id)) === '买牛奶\n[ ] 鸡蛋'), 'typing is saved');

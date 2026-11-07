@@ -249,7 +249,7 @@ button { cursor: pointer; }
   -webkit-user-select: text;
   user-select: text;
 }
-.line-editor.empty::before {
+.line-editor.ed-empty::before {
   content: attr(data-hint);
   position: absolute;
   color: var(--muted);

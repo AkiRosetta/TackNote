@@ -38,7 +38,7 @@ export function makeLineEditor(el, placeholder) {
 
   function render(text) {
     el.replaceChildren(...todoLines(text).map(lineElement));
-    el.classList.toggle('empty', text === '');
+    el.classList.toggle('ed-empty', text === '');
   }
 
   /** Text of a row without its box; nested rows and breaks become new lines. */
@@ -202,7 +202,7 @@ export function makeLineEditor(el, placeholder) {
       render(read());
       setCaret(start, end);
     }
-    el.classList.toggle('empty', read() === '');
+    el.classList.toggle('ed-empty', read() === '');
   });
 
   document.addEventListener('selectionchange', () => {
