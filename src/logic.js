@@ -5,6 +5,13 @@ export const CARD_MAX_LINES = 14;
 const COLUMN_WIDTH = 250;
 const GAP = 12;
 
+export const THEMES = ['system', 'light', 'dark'];
+
+/** Anything unknown, including nothing saved yet, follows the system. */
+export function normalTheme(value) {
+  return THEMES.includes(value) ? value : 'system';
+}
+
 export function colorClass(index) {
   return `color-${Math.min(Math.max(index | 0, 0), COLOR_COUNT - 1)}`;
 }

@@ -9,6 +9,7 @@ import {
   distribute,
   insertCheckbox,
   matches,
+  normalTheme,
 } from '../src/logic.js';
 
 const note = (text) => ({ text });
@@ -32,6 +33,13 @@ test('colour classes stay within the palette', () => {
   assert.equal(colorClass(2), 'color-2');
   assert.equal(colorClass(99), 'color-5');
   assert.equal(colorClass(-1), 'color-0');
+});
+
+test('an unknown or missing theme follows the system', () => {
+  assert.equal(normalTheme('dark'), 'dark');
+  assert.equal(normalTheme('light'), 'light');
+  assert.equal(normalTheme(null), 'system');
+  assert.equal(normalTheme('blue'), 'system');
 });
 
 test('search ignores case and surrounding spaces', () => {

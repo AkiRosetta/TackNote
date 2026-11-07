@@ -20,7 +20,12 @@ export const t = {
   addCheckbox: pick('添加待办', 'Add checkbox'),
   color: (n) => pick(`颜色 ${n}`, `Colour ${n}`),
   conflictCopy: pick('冲突副本', 'Conflict copy'),
-  settings: pick('同步设置', 'Sync settings'),
+  settings: pick('设置', 'Settings'),
+  sync: pick('同步', 'Sync'),
+  theme: pick('主题', 'Theme'),
+  themeSystem: pick('跟随系统', 'System'),
+  themeLight: pick('浅色', 'Light'),
+  themeDark: pick('深色', 'Dark'),
   webdavUrl: pick('WebDAV 地址', 'WebDAV URL'),
   username: pick('用户名', 'Username'),
   password: pick('密码', 'Password'),
@@ -66,7 +71,7 @@ function syncError(error) {
   switch (error) {
     case 'auth': return pick('账号或密码不对', 'Wrong username or password');
     case 'credentialsUnavailable': return pick(
-      '读不到保存的密码,请到同步设置里重新输入',
+      '读不到保存的密码,请到设置里重新输入',
       'Could not read the saved password. Enter it again in sync settings.',
     );
     case 'badUrl': return pick('WebDAV 地址格式不对,请检查一下', 'The WebDAV address is not valid. Please check it.');

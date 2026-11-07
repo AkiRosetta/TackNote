@@ -5,12 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>TackNote</title>
 <link rel="stylesheet" href="style.css">
+<script>
+  // Before the first paint, so a chosen theme never flashes the other one.
+  try { document.documentElement.dataset.theme = localStorage.getItem('tacknote.theme') || 'system'; } catch {}
+</script>
 </head>
 <body>
 <section id="home" class="view">
   <header class="bar">
     <h1 class="title">TackNote</h1>
     <button id="sync-button" class="icon-button" type="button" data-icon="cloud"></button>
+    <button id="settings-button" class="icon-button" type="button" data-icon="settings" data-label="settings"></button>
   </header>
   <label class="search">
     <span class="search-icon" data-icon="search"></span>
@@ -44,7 +49,15 @@
     <button id="settings-back" class="icon-button" type="button" data-icon="back" data-label="back"></button>
     <h1 class="title" data-text="settings"></h1>
   </header>
-  <form id="settings-form" class="settings" autocomplete="off">
+  <div class="settings">
+  <h2 id="theme-title" class="section-title" data-text="theme"></h2>
+  <div id="theme-choice" class="segmented" role="radiogroup" aria-labelledby="theme-title">
+    <label><input type="radio" name="theme" value="system"><span data-text="themeSystem"></span></label>
+    <label><input type="radio" name="theme" value="light"><span data-text="themeLight"></span></label>
+    <label><input type="radio" name="theme" value="dark"><span data-text="themeDark"></span></label>
+  </div>
+  <h2 class="section-title" data-text="sync"></h2>
+  <form id="settings-form" class="settings-form" autocomplete="off">
     <p data-text="settingsHint"></p>
     <label class="field"><span data-text="webdavUrl"></span>
       <input id="webdav-url" type="url" inputmode="url" autocapitalize="off" spellcheck="false" placeholder="https://dav.example.com/">
@@ -61,6 +74,7 @@
     <p id="settings-error" class="warning" hidden></p>
     <p id="settings-status" class="status"></p>
   </form>
+  </div>
 </section>
 
 <div id="fatal" class="fatal" hidden>

@@ -103,6 +103,27 @@ export async function run({ invoke }) {
     // Sync settings and the system keychain.
     $('#sync-button').click();
     check(await until(() => shown('settings') && !$('#webdav-url').disabled, 15000), 'the sync button opens the settings');
+
+    // Theme. The choice is put back afterwards, since the browser storage is
+    // not inside the test folder.
+    const themeBefore = localStorage.getItem('tacknote.theme');
+    const background = () => getComputedStyle(document.body).backgroundColor;
+    const frameTheme = () => window.__TAURI__.window.getCurrentWindow().theme();
+    try {
+      $('#theme-choice input[value="dark"]').click();
+      check(background() === 'rgb(26, 25, 23)', 'choosing dark turns the page dark');
+      check(await until(async () => (await frameTheme()) === 'dark'), 'the window frame turns dark too');
+      $('#theme-choice input[value="light"]').click();
+      check(background() === 'rgb(246, 244, 238)', 'choosing light turns the page light');
+      check(await until(async () => (await frameTheme()) === 'light'), 'the window frame turns light too');
+      check(localStorage.getItem('tacknote.theme') === 'light', 'the choice is remembered');
+      $('#theme-choice input[value="system"]').click();
+      const systemDark = matchMedia('(prefers-color-scheme: dark)').matches;
+      check(background() === (systemDark ? 'rgb(26, 25, 23)' : 'rgb(246, 244, 238)'), 'following the system again');
+    } finally {
+      if (themeBefore === null) localStorage.removeItem('tacknote.theme');
+      else localStorage.setItem('tacknote.theme', themeBefore);
+    }
     fill($('#webdav-url'), 'http://example.com/dav/');
     check(await until(() => !$('#insecure-warning').hidden), 'plain http to another computer gets a warning');
     fill($('#webdav-url'), 'http://127.0.0.1:9/');

@@ -9,6 +9,7 @@ import {
   distribute,
   insertCheckbox,
   matches,
+  normalTheme,
 } from './logic.js';
 import { lang, t } from './strings.js';
 
@@ -68,6 +69,40 @@ async function retry(action) {
     }
   }
 }
+
+// ---- Theme: follow the system, light or dark ----
+
+// Kept on this device only; the page's head applies it before the first paint.
+const THEME_KEY = 'tacknote.theme';
+
+function savedTheme() {
+  try {
+    return normalTheme(localStorage.getItem(THEME_KEY));
+  } catch {
+    return 'system';
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  for (const input of document.querySelectorAll('#theme-choice input')) input.checked = input.value === theme;
+  // The window frame follows too; phones have none, so a refusal is fine.
+  try {
+    window.__TAURI__.window.getCurrentWindow().setTheme(theme === 'system' ? null : theme).catch(() => {});
+  } catch {}
+}
+
+$('theme-choice').addEventListener('change', (event) => {
+  const theme = normalTheme(event.target.value);
+  try {
+    localStorage.setItem(THEME_KEY, theme);
+  } catch (error) {
+    console.error(error);
+  }
+  applyTheme(theme);
+});
+
+applyTheme(savedTheme());
 
 // ---- Pages ----
 
@@ -200,6 +235,7 @@ $('new-note').addEventListener('click', async () => {
 });
 
 $('sync-button').addEventListener('click', () => navigate('#/settings'));
+$('settings-button').addEventListener('click', () => navigate('#/settings'));
 
 // ---- Editor ----
 
