@@ -67,8 +67,10 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
-  /* Android 15 draws the app under the status bar and the gesture bar. */
-  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  /* Android 15 draws the app under the status bar and the gesture bar, and
+     the keyboard over the page; MainActivity.kt sets --keyboard. */
+  padding: env(safe-area-inset-top) env(safe-area-inset-right)
+    max(env(safe-area-inset-bottom), var(--keyboard, 0px)) env(safe-area-inset-left);
   overflow: hidden;
   -webkit-tap-highlight-color: transparent;
 }
@@ -322,7 +324,7 @@ button { cursor: pointer; }
 .toast {
   position: fixed;
   left: 50%;
-  bottom: calc(24px + env(safe-area-inset-bottom));
+  bottom: calc(24px + max(env(safe-area-inset-bottom), var(--keyboard, 0px)));
   transform: translate(-50%, 20px);
   max-width: min(90vw, 480px);
   padding: 10px 16px;
