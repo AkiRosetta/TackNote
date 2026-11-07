@@ -320,9 +320,12 @@ export async function run({ invoke, mode }) {
       await wait(250);
       const preview = [...document.querySelectorAll('.card:not(.drag-ghost)')].map((el) => el.dataset.id);
       window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+      settling.push(document.querySelector('.drag-ghost')?.getAnimations().length > 0);
       return preview.filter((noteId) => made.includes(noteId));
     }
+    const settling = [];
     const preview = await dragCard(cardOf(jia), cardOf(bing), false);
+    check(settling[0] === true, 'the card glides into its new place when let go');
     check(preview.join() === [jia, bing, yi].join(), 'the other cards move aside while dragging, before letting go');
     check(
       await until(async () => (await listed()).join() === [jia, bing, yi].join()),

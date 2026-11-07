@@ -105,6 +105,9 @@ function renderHome() {
   $('empty-body').hidden = searching;
   const container = $('notes');
   const scroll = container.scrollTop;
+  // The list is not redrawn while hidden, so these are the places the user
+  // last saw, even when coming back from the editor.
+  const was = cardPlaces();
   const columns = distribute(notes, columnCountFor(container.clientWidth || window.innerWidth));
   container.replaceChildren(
     ...columns.map((column) => {
@@ -115,6 +118,38 @@ function renderHome() {
     }),
   );
   container.scrollTop = scroll;
+  slideCards(was, true);
+}
+
+// ---- Card motion ----
+// Whenever cards change places they slide there, so the user can follow
+// where each one went; new cards fade in. None of it with reduced motion.
+
+const calm = matchMedia('(prefers-reduced-motion: reduce)');
+const SLIDE_MS = 220;
+
+function cardPlaces() {
+  return new Map([...$('notes').querySelectorAll('.card')].map((el) => [el.dataset.id, el.getBoundingClientRect()]));
+}
+
+/** Slides each card from where it was to where it is now. */
+function slideCards(was, fadeInNew) {
+  // Nothing was on screen before, such as at start: just show the list.
+  if (calm.matches || ![...was.values()].some((place) => place.width > 0)) return;
+  for (const el of $('notes').querySelectorAll('.card')) {
+    const before = was.get(el.dataset.id);
+    if (!before) {
+      if (fadeInNew) {
+        el.animate([{ opacity: 0, transform: 'scale(0.96)' }, { opacity: 1, transform: 'none' }], { duration: SLIDE_MS, easing: 'ease-out' });
+      }
+      continue;
+    }
+    const now = el.getBoundingClientRect();
+    const dx = before.left - now.left;
+    const dy = before.top - now.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: 'none' }], { duration: SLIDE_MS, easing: 'ease' });
+  }
 }
 
 function card(note) {
@@ -221,15 +256,16 @@ function startDrag(current) {
   navigator.vibrate?.(15);
 }
 
+/** The card in hand is a little bigger, so it reads as picked up. */
 function moveGhost(current, x, y) {
-  current.ghost.style.transform = `translate(${x - current.offsetX}px, ${y - current.offsetY}px)`;
+  current.ghost.style.transform = `translate(${x - current.offsetX}px, ${y - current.offsetY}px) scale(1.03)`;
 }
 
 /** Lays the cards out in `order`, sliding each from where it was. */
 function layoutCards(order) {
   const container = $('notes');
   const cards = new Map([...container.querySelectorAll('.card')].map((el) => [el.dataset.id, el]));
-  const was = new Map([...cards].map(([id, el]) => [id, el.getBoundingClientRect()]));
+  const was = cardPlaces();
   const byId = new Map(state.notes.map((note) => [note.id, note]));
   const notes = order.map((id) => byId.get(id)).filter(Boolean);
   const scroll = container.scrollTop;
@@ -242,17 +278,7 @@ function layoutCards(order) {
     }),
   );
   container.scrollTop = scroll;
-  for (const [id, el] of cards) {
-    const now = el.getBoundingClientRect();
-    const dx = was.get(id).left - now.left;
-    const dy = was.get(id).top - now.top;
-    if (!dx && !dy) continue;
-    el.style.transition = 'none';
-    el.style.transform = `translate(${dx}px, ${dy}px)`;
-    el.getBoundingClientRect();
-    el.style.transition = 'transform 180ms ease';
-    el.style.transform = '';
-  }
+  slideCards(was, false);
 }
 
 /** Every card moves to where it would be, as soon as the finger is over another card. */
@@ -284,15 +310,27 @@ function endDrag(current, drop) {
   current.started = false;
   draggedJustNow = true;
   setTimeout(() => { draggedJustNow = false; }, 400);
-  current.ghost.remove();
-  current.card.classList.remove('dragging');
   const changed = current.order.join() !== state.notes.map((note) => note.id).join();
-  if (drop && changed) {
-    const before = current.order[current.order.indexOf(current.id) + 1] ?? null;
-    invoke('move_note', { id: current.id, before }).catch(reportError);
-  } else if (changed || current.redraw) {
-    renderHome();
+  const finish = () => {
+    current.ghost.remove();
+    current.card.classList.remove('dragging');
+    if (drop && changed) {
+      const before = current.order[current.order.indexOf(current.id) + 1] ?? null;
+      invoke('move_note', { id: current.id, before }).catch(reportError);
+    } else if (changed || current.redraw) {
+      renderHome();
+    }
+  };
+  if (!drop || calm.matches) {
+    finish();
+    return;
   }
+  // The card settles into its new place instead of vanishing.
+  const place = current.card.getBoundingClientRect();
+  current.ghost.animate(
+    [{ transform: current.ghost.style.transform }, { transform: `translate(${place.left}px, ${place.top}px)` }],
+    { duration: 160, easing: 'ease-out', fill: 'forwards' },
+  ).onfinish = finish;
 }
 
 $('notes').addEventListener('mousedown', (event) => {
