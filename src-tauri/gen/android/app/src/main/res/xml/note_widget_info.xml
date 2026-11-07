@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- updatePeriodMillis is 0: the app redraws the widget itself whenever the
-     shown note changes and when it goes to the background. -->
+<!-- updatePeriodMillis is 0: the app redraws the widgets itself whenever a
+     note changes and when it goes to the background. The configure screen
+     picks the note when a widget is added by hand. -->
 <appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
     android:initialLayout="@layout/note_widget"
     android:previewLayout="@layout/note_widget"
@@ -10,4 +11,6 @@
     android:targetCellHeight="2"
     android:resizeMode="horizontal|vertical"
     android:updatePeriodMillis="0"
+    android:configure="io.github.akirosetta.tacknote.WidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional"
     android:widgetCategory="home_screen" />

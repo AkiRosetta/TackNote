@@ -410,8 +410,12 @@ $('stick-note').addEventListener('click', async () => {
   const editor = state.editor;
   if (!editor) return;
   try {
-    await invoke(isPhone ? 'show_in_widget' : 'stick_note', { id: editor.id });
-    if (isPhone) toast(t.shownInWidget);
+    if (!isPhone) {
+      await invoke('stick_note', { id: editor.id });
+    } else if (!(await invoke('show_in_widget', { id: editor.id }))) {
+      // This launcher cannot add a widget for the app; the user adds one.
+      toast(t.addWidgetByHand);
+    }
   } catch (error) {
     console.error(error);
     toast(t.stickFailed);

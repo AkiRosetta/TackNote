@@ -9,6 +9,11 @@ import app.tauri.plugin.JSObject
 import app.tauri.plugin.Plugin
 
 @InvokeArg
+class WidgetArgs {
+  var noteId: String = ""
+}
+
+@InvokeArg
 class PasswordArgs {
   var password: String = ""
 }
@@ -23,12 +28,12 @@ class BridgePlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve()
   }
 
-  /** A note was chosen for the widget: redraw, and offer to add a widget if there is none. */
+  /** Asks the launcher to add a widget showing this note; answers whether it could ask. */
   @Command
-  fun showWidget(invoke: Invoke) {
+  fun addWidget(invoke: Invoke) {
+    val noteId = invoke.parseArgs(WidgetArgs::class.java).noteId
     NoteWidget.refresh(activity)
-    if (!NoteWidget.isPlaced(activity)) NoteWidget.requestPin(activity)
-    invoke.resolve()
+    invoke.resolve(JSObject().put("pinned", NoteWidget.requestPin(activity, noteId)))
   }
 
   /** The saved WebDAV password, or no `password` field when none is saved. */

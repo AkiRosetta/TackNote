@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_label">TackNote 便签</string>
-    <string name="widget_empty">在 TackNote 里打开一张便签,点“显示在小组件上”。</string>
+    <string name="widget_empty">点这里选一张便签显示在这里。</string>
     <string name="widget_blank">(空便签)</string>
+    <string name="widget_choose">选择这个小组件显示的便签</string>
+    <string name="widget_no_notes">还没有便签,先打开 TackNote 写一张。</string>
 </resources>

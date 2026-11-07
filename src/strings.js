@@ -20,7 +20,10 @@ export const t = {
   addCheckbox: pick('添加待办', 'Add checkbox'),
   stickNote: pick('贴到桌面', 'Stick on desktop'),
   showInWidget: pick('显示在小组件上', 'Show on widget'),
-  shownInWidget: pick('桌面小组件会显示这张便签', 'The home screen widget now shows this note'),
+  addWidgetByHand: pick(
+    '请长按桌面空白处,添加 TackNote 小组件,再选这张便签。',
+    'Touch and hold an empty spot on the home screen, add the TackNote widget, then choose this note.',
+  ),
   stickFailed: pick('没能把便签贴到桌面,请再试一次。', 'Could not stick the note on the desktop. Please try again.'),
   keepOnTop: pick('保持在最前面', 'Keep on top'),
   stopKeepOnTop: pick('不再保持在最前面', 'Stop keeping on top'),

@@ -135,6 +135,21 @@ impl Core {
         self.sync.notes_changed();
         let _ = app.emit("notes-changed", NotesChanged { source: "local", window: Some(window.label().into()) });
     }
+
+    /// To-dos ticked on a home screen widget: applied every couple of seconds
+    /// while the app runs, and at start for ticks made while it was closed.
+    #[cfg(target_os = "android")]
+    fn apply_widget_ticks(&self, app: &AppHandle) {
+        match self.widget.apply_ticks(&self.notes) {
+            Ok(true) => {
+                self.widget.notes_changed(&self.notes);
+                self.sync.notes_changed();
+                let _ = app.emit("notes-changed", NotesChanged { source: "widget", window: None });
+            }
+            Ok(false) => {}
+            Err(error) => eprintln!("could not apply a widget tick: {error}"),
+        }
+    }
 }
 
 /// In debug builds `TACKNOTE_TEST_DIR` keeps notes, settings and the keychain
@@ -198,7 +213,7 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
     #[cfg(desktop)]
     let stickies = crate::desktop::Stickies::new(app, dir.join("stickies.json"));
     #[cfg(target_os = "android")]
-    let widget = crate::android::Widget::new(app, dir.join("widget.json"));
+    let widget = crate::android::Widget::new(app, &dir);
     let on_notes_applied = {
         let app = app.clone();
         #[cfg(desktop)]
@@ -250,6 +265,18 @@ pub fn setup(app: &tauri::App) {
         }
     }
     app.manage(AppState(core));
+    #[cfg(target_os = "android")]
+    {
+        let app = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            loop {
+                if let Ok(core) = app.state::<AppState>().core() {
+                    core.apply_widget_ticks(&app);
+                }
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
+    }
 }
 
 /// The sticky windows of a running app, if it started.
@@ -404,12 +431,14 @@ fn take_conflicts(state: State<AppState>) -> Result<usize, CommandError> {
     Ok(state.core()?.sync.take_conflicts())
 }
 
-/// Shows the note on the Android home screen widget.
-#[tauri::command]
-fn show_in_widget(state: State<AppState>, id: String) -> Result<(), CommandError> {
+/// Asks Android to add a home screen widget showing this note. Answers
+/// whether it could ask; if not, the user adds one by hand and picks the note.
+/// Off the main thread, since it waits for Android.
+#[tauri::command(async)]
+fn show_in_widget(state: State<AppState>, id: String) -> Result<bool, CommandError> {
     let core = state.core()?;
     #[cfg(target_os = "android")]
-    return core.widget.choose(&core.notes, &id).map_err(|e| error(ErrorKind::Storage, e));
+    return core.widget.add(&core.notes, &id).map_err(|e| error(ErrorKind::Window, e));
     #[cfg(not(target_os = "android"))]
     {
         let _ = (core, id);

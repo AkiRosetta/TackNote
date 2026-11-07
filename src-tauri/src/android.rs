@@ -2,7 +2,7 @@
 //! widget that shows the chosen note, and the password in the Keystore.
 
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
@@ -80,35 +80,62 @@ impl SecretStore for KeystoreSecrets {
 pub struct Widget {
     app: AppHandle,
     feed: Mutex<WidgetFeed>,
+    actions: PathBuf,
+}
+
+#[derive(serde::Deserialize)]
+struct Pinned {
+    pinned: bool,
 }
 
 impl Widget {
-    pub fn new(app: &AppHandle, path: PathBuf) -> Arc<Widget> {
-        Arc::new(Widget { app: app.clone(), feed: Mutex::new(WidgetFeed::open(path)) })
+    /// `dir` is the app data folder, where `NoteWidget.kt` looks.
+    pub fn new(app: &AppHandle, dir: &Path) -> Arc<Widget> {
+        Arc::new(Widget {
+            app: app.clone(),
+            feed: Mutex::new(WidgetFeed::open(dir.join("widget.json"))),
+            actions: dir.join("widget-actions"),
+        })
     }
 
     pub fn chosen(&self) -> Option<String> {
         self.feed.lock().unwrap().chosen().map(str::to_string)
     }
 
-    /// Shows the note on the widget, and offers to add the widget to the home
-    /// screen if there is none yet.
-    pub fn choose(&self, notes: &Mutex<NoteStore>, id: &str) -> io::Result<()> {
-        let note = notes.lock().unwrap().get(id).cloned();
-        self.feed.lock().unwrap().show(note.as_ref())?;
-        call(&self.app, "showWidget");
-        Ok(())
+    /// Asks the launcher to add a widget showing this note. Says whether it
+    /// could ask; some launchers only let the user add widgets by hand.
+    /// Blocks until Android answers, so only call it off the main thread.
+    pub fn add(&self, notes: &Mutex<NoteStore>, id: &str) -> Result<bool, String> {
+        let visible = notes.lock().unwrap().visible();
+        {
+            let mut feed = self.feed.lock().unwrap();
+            feed.choose(id);
+            feed.write(&visible).map_err(|error| error.to_string())?;
+        }
+        let bridge = self.app.try_state::<Bridge>().ok_or("the Android bridge is not ready")?;
+        bridge
+            .0
+            .run_mobile_plugin::<Pinned>("addWidget", serde_json::json!({ "noteId": id }))
+            .map(|answer| answer.pinned)
+            .map_err(|error| error.to_string())
     }
 
-    /// After any change, local or from a sync: redraws when the shown note
-    /// changed, so the home screen never shows old text.
+    /// After any change, local or from a sync: rewrites what the widgets show
+    /// and redraws them, so the home screen never keeps old text.
     pub fn notes_changed(&self, notes: &Mutex<NoteStore>) {
-        let mut feed = self.feed.lock().unwrap();
-        let note = feed.chosen().and_then(|id| notes.lock().unwrap().get(id).cloned());
-        match feed.show(note.as_ref()) {
+        let visible = notes.lock().unwrap().visible();
+        match self.feed.lock().unwrap().write(&visible) {
             Ok(true) => call(&self.app, "refreshWidget"),
             Ok(false) => {}
-            Err(error) => eprintln!("could not update the widget: {error}"),
+            Err(error) => eprintln!("could not update the widgets: {error}"),
         }
+    }
+
+    /// Applies the to-dos ticked on widgets. Says whether a note changed.
+    pub fn apply_ticks(&self, notes: &Mutex<NoteStore>) -> io::Result<bool> {
+        if !self.actions.exists() {
+            return Ok(false);
+        }
+        crate::widget::apply_toggles(&mut notes.lock().unwrap(), &self.actions)
     }
 }
