@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, Manager, State, WebviewWindow};
 
 use crate::checklist::{parse_lines, NoteLine};
 use crate::model::Note;
-use crate::settings::{NoSecureStorage, SecretStore, Settings, SettingsError};
+use crate::settings::{SecretStore, Settings, SettingsError};
 use crate::store::{Change, NoteStore};
 use crate::sync_controller::{SyncController, SyncState};
 use crate::webdav::{http_client, WebDavConfig, WebDavStore};
@@ -157,7 +157,13 @@ fn keychain_service() -> String {
     if test_dir().is_some() { format!("{IDENTIFIER}.test") } else { IDENTIFIER.to_string() }
 }
 
-fn secret_store() -> Box<dyn SecretStore> {
+#[cfg(target_os = "android")]
+fn secret_store(app: &AppHandle) -> Box<dyn SecretStore> {
+    Box::new(crate::android::KeystoreSecrets::new(app))
+}
+
+#[cfg(not(target_os = "android"))]
+fn secret_store(_app: &AppHandle) -> Box<dyn SecretStore> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         if let Ok(keychain) = crate::settings::Keychain::new(&keychain_service()) {
@@ -165,7 +171,7 @@ fn secret_store() -> Box<dyn SecretStore> {
         }
     }
     // Saving then fails loudly; the password never goes to a plain file.
-    Box::new(NoSecureStorage)
+    Box::new(crate::settings::NoSecureStorage)
 }
 
 /// Notes that exist and are not deleted.
@@ -215,7 +221,7 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
     let settings_path = dir.join("settings.json");
     let sync = SyncController::new(
         notes.clone(),
-        Settings::new(&settings_path, secret_store()),
+        Settings::new(&settings_path, secret_store(app)),
         make_remote,
         SYNC_DELAY,
         SYNC_INTERVAL,
@@ -224,7 +230,7 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
     );
     Ok(Core {
         notes,
-        settings: Settings::new(settings_path, secret_store()),
+        settings: Settings::new(settings_path, secret_store(app)),
         sync,
         #[cfg(desktop)]
         stickies,

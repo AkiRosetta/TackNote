@@ -1,5 +1,5 @@
-//! Android only: the bridge to Kotlin (`BridgePlugin.kt`) and the home screen
-//! widget that shows the chosen note.
+//! Android only: the bridge to Kotlin (`BridgePlugin.kt`), the home screen
+//! widget that shows the chosen note, and the password in the Keystore.
 
 use std::io;
 use std::path::PathBuf;
@@ -8,6 +8,7 @@ use std::sync::{Arc, Mutex};
 use tauri::plugin::{Builder, PluginHandle, TauriPlugin};
 use tauri::{AppHandle, Manager, Wry};
 
+use crate::settings::SecretStore;
 use crate::store::NoteStore;
 use crate::widget::WidgetFeed;
 
@@ -36,6 +37,44 @@ fn call(app: &AppHandle, command: &'static str) {
             eprintln!("Android did not run {command}: {error}");
         }
     });
+}
+
+/// The WebDAV password, kept by `Secrets.kt` encrypted with an Android
+/// Keystore key. Blocks until Android answers, so it is only used off the
+/// main thread: by the sync and by async commands.
+pub struct KeystoreSecrets {
+    app: AppHandle,
+}
+
+impl KeystoreSecrets {
+    pub fn new(app: &AppHandle) -> KeystoreSecrets {
+        KeystoreSecrets { app: app.clone() }
+    }
+}
+
+#[derive(serde::Deserialize)]
+struct SavedPassword {
+    password: Option<String>,
+}
+
+impl SecretStore for KeystoreSecrets {
+    fn get(&self) -> Result<Option<String>, String> {
+        let bridge = self.app.try_state::<Bridge>().ok_or("the Android bridge is not ready")?;
+        bridge
+            .0
+            .run_mobile_plugin::<SavedPassword>("getPassword", ())
+            .map(|saved| saved.password)
+            .map_err(|error| error.to_string())
+    }
+
+    fn set(&self, password: &str) -> Result<(), String> {
+        let bridge = self.app.try_state::<Bridge>().ok_or("the Android bridge is not ready")?;
+        bridge
+            .0
+            .run_mobile_plugin::<serde_json::Value>("setPassword", serde_json::json!({ "password": password }))
+            .map(|_| ())
+            .map_err(|error| error.to_string())
+    }
 }
 
 pub struct Widget {
