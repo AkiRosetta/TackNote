@@ -38,4 +38,5 @@
 ## 开发环境
 
 - **网络连接常被中途打断。** 连 crates.io、GitHub、Maven 时经常出现 TLS 握手中断。下载和编译要能自动重试,并且要区分网络错误和代码错误:是网络错误就重试,不是就停下来查。
+- **`npm run tauri dev` 编出来的程序离不开开发服务。** 它的页面从 `127.0.0.1:1430` 读取,开发版退出后再直接打开 `target/debug/tacknote`(比如放进程序坞的那个)就是空的。要给用户一个能放进程序坞、能反复开关的版本,就打测试版 app:`npm run tauri build -- --debug --bundles app --config '{"bundle":{"active":true}}'`。
 - **从后台任务启动的桌面程序没有窗口。** 要让用户试用时,用前台命令 `nohup ... & disown` 启动,再确认窗口确实出现了。
