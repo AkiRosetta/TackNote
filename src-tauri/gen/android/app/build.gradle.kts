@@ -39,6 +39,9 @@ android {
             }
         }
         getByName("release") {
+            // For testing only: signed with this computer's debug key so it
+            // installs. A published app needs its own release key instead.
+            signingConfig = signingConfigs.getByName("debug")
             optimization {
                enable = true
             }
