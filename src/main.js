@@ -1,9 +1,9 @@
+import { applyTheme, fillPage, isPhone, replaceText, retry, saveTheme, savedTheme, setLabel, toast } from './common.js';
 import { icon } from './icons.js';
 import {
   CARD_MAX_LINES,
   COLOR_COUNT,
   EditorSync,
-  caretAfterReplace,
   colorClass,
   columnCountFor,
   distribute,
@@ -21,26 +21,8 @@ const state = { notes: [], query: '', sync: null, editor: null, fromHome: false 
 
 // ---- Shared bits ----
 
-document.documentElement.lang = lang;
-for (const el of document.querySelectorAll('[data-text]')) el.textContent = t[el.dataset.text];
-for (const el of document.querySelectorAll('[data-placeholder]')) el.placeholder = t[el.dataset.placeholder];
-for (const el of document.querySelectorAll('[data-label]')) setLabel(el, t[el.dataset.label]);
-for (const el of document.querySelectorAll('[data-icon]')) el.innerHTML = icon(el.dataset.icon);
+fillPage();
 $('empty-body').textContent = t.emptyBody;
-
-function setLabel(el, label) {
-  el.title = label;
-  el.setAttribute('aria-label', label);
-}
-
-let toastTimer;
-function toast(message) {
-  const el = $('toast');
-  el.textContent = message;
-  el.classList.add('shown');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => el.classList.remove('shown'), 4000);
-}
 
 function showFatal(detail) {
   $('fatal-detail').textContent = detail;
@@ -54,55 +36,21 @@ function reportError(error) {
   else toast(t.saveFailed);
 }
 
-/**
- * On Android a cold-started page can run before Rust accepts calls, and such
- * a call is refused rather than queued. Retries for 3 seconds; errors from
- * the app itself are not retried.
- */
-async function retry(action) {
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return await action();
-    } catch (error) {
-      if (error?.kind || attempt >= 30) throw error;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-  }
-}
-
 // ---- Theme: follow the system, light or dark ----
 
-// Kept on this device only; the page's head applies it before the first paint.
-const THEME_KEY = 'tacknote.theme';
-
-function savedTheme() {
-  try {
-    return normalTheme(localStorage.getItem(THEME_KEY));
-  } catch {
-    return 'system';
-  }
-}
-
-function applyTheme(theme) {
-  document.documentElement.dataset.theme = theme;
+function showTheme(theme) {
+  applyTheme(theme);
   for (const input of document.querySelectorAll('#theme-choice input')) input.checked = input.value === theme;
-  // The window frame follows too; phones have none, so a refusal is fine.
-  try {
-    window.__TAURI__.window.getCurrentWindow().setTheme(theme === 'system' ? null : theme).catch(() => {});
-  } catch {}
 }
 
 $('theme-choice').addEventListener('change', (event) => {
   const theme = normalTheme(event.target.value);
-  try {
-    localStorage.setItem(THEME_KEY, theme);
-  } catch (error) {
-    console.error(error);
-  }
-  applyTheme(theme);
+  saveTheme(theme);
+  showTheme(theme);
+  window.__TAURI__.event.emit('theme-changed', theme).catch(console.error);
 });
 
-applyTheme(savedTheme());
+showTheme(savedTheme());
 
 // ---- Pages ----
 
@@ -250,16 +198,6 @@ for (let index = 0; index < COLOR_COUNT; index++) {
   $('colors').append(swatch);
 }
 
-/** Shows a change from elsewhere without moving the caret out of place. */
-function replaceText(text) {
-  const start = caretAfterReplace(box.value, text, box.selectionStart);
-  const end = caretAfterReplace(box.value, text, box.selectionEnd);
-  const scroll = box.scrollTop;
-  box.value = text;
-  box.setSelectionRange(start, end);
-  box.scrollTop = scroll;
-}
-
 function showEditorChrome(note) {
   state.editor.note = note;
   $('editor').className = `view ${colorClass(note.colorIndex)}`;
@@ -294,7 +232,7 @@ async function openEditor(id) {
       save: (text, base) => invoke('edit_text', { id, base, text }),
       load: async () => (await invoke('get_note', { id }))?.text ?? null,
       getValue: () => box.value,
-      setValue: replaceText,
+      setValue: (text) => replaceText(box, text),
       onError: reportError,
     }),
   };
@@ -328,6 +266,17 @@ box.addEventListener('compositionstart', () => state.editor?.sync.compositionSta
 box.addEventListener('compositionend', () => state.editor?.sync.compositionEnded());
 
 $('editor-back').addEventListener('click', goBack);
+
+// Phones have no desktop; the Android widget takes this place later.
+$('stick-note').hidden = isPhone;
+$('stick-note').addEventListener('click', () => {
+  const editor = state.editor;
+  if (!editor) return;
+  invoke('stick_note', { id: editor.id }).catch((error) => {
+    console.error(error);
+    toast(t.stickFailed);
+  });
+});
 
 $('add-checkbox').addEventListener('click', () => {
   const { text, caret } = insertCheckbox(box.value, box.selectionStart);
@@ -463,9 +412,10 @@ async function start() {
   }
   columnCount = columnCountFor($('notes').clientWidth || window.innerWidth);
   route();
-  if (await invoke('selftest_enabled_cmd')) {
+  const selftest = await invoke('selftest_mode');
+  if (selftest) {
     const { run } = await import('./selftest.js');
-    run({ invoke });
+    run({ invoke, mode: selftest });
   }
 }
 

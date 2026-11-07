@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TackNote</title>
+<link rel="stylesheet" href="style.css">
+<script>
+  // Before the first paint, so a chosen theme never flashes the other one.
+  try { document.documentElement.dataset.theme = localStorage.getItem('tacknote.theme') || 'system'; } catch {}
+</script>
+</head>
+<body class="sticky-page">
+<header class="sticky-bar" data-tauri-drag-region>
+  <button id="keep-on-top" class="icon-button" type="button" data-icon="pin"></button>
+  <button id="close-sticky" class="icon-button" type="button" data-icon="close" data-label="closeSticky"></button>
+</header>
+<textarea id="sticky-text" spellcheck="false" data-placeholder="placeholder"></textarea>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<script type="module" src="sticky.js"></script>
+</body>
+</html>

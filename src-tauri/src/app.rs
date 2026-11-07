@@ -4,6 +4,8 @@
 //! so every window showing a note can refresh it; `sync-state` whenever the
 //! sync status changes.
 
+#[cfg(desktop)]
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -32,6 +34,8 @@ struct Core {
     notes: Arc<Mutex<NoteStore>>,
     settings: Settings,
     sync: Arc<AutoSync>,
+    #[cfg(desktop)]
+    stickies: Arc<crate::desktop::Stickies>,
 }
 
 /// `Err` when the saved notes could not be opened; the page then says why
@@ -47,6 +51,8 @@ pub enum ErrorKind {
     Storage,
     /// The keychain refused the password; nothing was saved.
     Keychain,
+    /// A sticky note window could not be opened or changed.
+    Window,
     NotAllowed,
 }
 
@@ -117,6 +123,11 @@ impl Core {
 
     /// Tells every window and schedules a sync.
     fn changed(&self, app: &AppHandle, window: &WebviewWindow) {
+        #[cfg(desktop)]
+        {
+            let alive = alive_notes(&self.notes);
+            self.stickies.prune(|id| alive.contains(id));
+        }
         self.sync.notes_changed();
         let _ = app.emit("notes-changed", NotesChanged { source: "local", window: Some(window.label().into()) });
     }
@@ -153,6 +164,12 @@ fn secret_store() -> Box<dyn SecretStore> {
     Box::new(NoSecureStorage)
 }
 
+/// Notes that exist and are not deleted.
+#[cfg(desktop)]
+fn alive_notes(notes: &Mutex<NoteStore>) -> HashSet<String> {
+    notes.lock().unwrap().visible().into_iter().map(|note| note.id).collect()
+}
+
 fn open_core(app: &AppHandle) -> Result<Core, String> {
     let dir = match test_dir() {
         Some(dir) => dir,
@@ -168,9 +185,19 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
             let _ = app.emit("sync-state", state);
         }
     };
+    #[cfg(desktop)]
+    let stickies = crate::desktop::Stickies::new(app, dir.join("stickies.json"));
     let on_notes_applied = {
         let app = app.clone();
+        #[cfg(desktop)]
+        let (notes, stickies) = (notes.clone(), stickies.clone());
         move || {
+            // A note deleted on another device takes its window with it.
+            #[cfg(desktop)]
+            {
+                let alive = alive_notes(&notes);
+                stickies.prune(|id| alive.contains(id));
+            }
             let _ = app.emit("notes-changed", NotesChanged { source: "sync", window: None });
         }
     };
@@ -184,15 +211,33 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
         on_state,
         on_notes_applied,
     );
-    Ok(Core { notes, settings: Settings::new(settings_path, secret_store()), sync })
+    Ok(Core {
+        notes,
+        settings: Settings::new(settings_path, secret_store()),
+        sync,
+        #[cfg(desktop)]
+        stickies,
+    })
 }
 
 pub fn setup(app: &tauri::App) {
     let core = open_core(app.handle());
     if let Ok(core) = &core {
         core.sync.start();
+        #[cfg(desktop)]
+        {
+            let alive = alive_notes(&core.notes);
+            core.stickies.restore(|id| alive.contains(id));
+        }
     }
     app.manage(AppState(core));
+}
+
+/// The sticky windows of a running app, if it started.
+#[cfg(desktop)]
+pub fn stickies(app: &AppHandle) -> Option<Arc<crate::desktop::Stickies>> {
+    let state = app.try_state::<AppState>()?;
+    state.0.as_ref().ok().map(|core| core.stickies.clone())
 }
 
 // Note commands are synchronous, so they run in the order the page sent them.
@@ -272,6 +317,11 @@ fn delete_note(app: AppHandle, window: WebviewWindow, state: State<AppState>, id
 #[tauri::command]
 fn discard_if_empty(app: AppHandle, window: WebviewWindow, state: State<AppState>, id: String) -> Result<bool, CommandError> {
     let core = state.core()?;
+    // An empty note on the desktop is waiting to be written in.
+    #[cfg(desktop)]
+    if core.stickies.is_stuck(&id) {
+        return Ok(false);
+    }
     {
         let mut notes = core.notes();
         match notes.get(&id) {
@@ -324,12 +374,132 @@ fn take_conflicts(state: State<AppState>) -> Result<usize, CommandError> {
     Ok(state.core()?.sync.take_conflicts())
 }
 
+#[cfg(mobile)]
+fn no_windows() -> CommandError {
+    error(ErrorKind::NotAllowed, "phones have no desktop windows")
+}
+
+/// Sticks a note on the desktop in its own window, or shows that window.
+#[tauri::command]
+async fn stick_note(state: State<'_, AppState>, id: String) -> Result<(), CommandError> {
+    let core = state.core()?;
+    if !core.notes().get(&id).is_some_and(|note| !note.deleted) {
+        return Err(error(ErrorKind::NotAllowed, "the note does not exist"));
+    }
+    #[cfg(desktop)]
+    return core.stickies.open(&id).await.map_err(|e| error(ErrorKind::Window, e));
+    #[cfg(mobile)]
+    Err(no_windows())
+}
+
+#[tauri::command]
+fn unstick_note(state: State<AppState>, id: String) -> Result<(), CommandError> {
+    let core = state.core()?;
+    #[cfg(desktop)]
+    {
+        core.stickies.close(&id);
+        Ok(())
+    }
+    #[cfg(mobile)]
+    {
+        let _ = (core, id);
+        Err(no_windows())
+    }
+}
+
+#[tauri::command]
+fn set_sticky_on_top(state: State<AppState>, id: String, on_top: bool) -> Result<(), CommandError> {
+    let core = state.core()?;
+    #[cfg(desktop)]
+    return core.stickies.set_on_top(&id, on_top).map_err(|e| error(ErrorKind::Window, e));
+    #[cfg(mobile)]
+    {
+        let _ = (core, id, on_top);
+        Err(no_windows())
+    }
+}
+
+#[tauri::command]
+fn sticky_on_top(state: State<AppState>, id: String) -> Result<Option<bool>, CommandError> {
+    let core = state.core()?;
+    #[cfg(desktop)]
+    return Ok(core.stickies.on_top(&id));
+    #[cfg(mobile)]
+    {
+        let _ = (core, id);
+        Ok(None)
+    }
+}
+
 // Self-test hooks: they only work in a debug build started with both
 // TACKNOTE_SELFTEST and TACKNOTE_TEST_DIR set, and refuse otherwise.
 
+/// The self-test to run: "1" walks through everything; "restore" checks the
+/// sticky windows came back after a restart.
 #[tauri::command]
-fn selftest_enabled_cmd() -> bool {
-    selftest_enabled()
+fn selftest_mode() -> Option<String> {
+    selftest_enabled().then(|| std::env::var("TACKNOTE_SELFTEST").unwrap_or_default())
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowInfo {
+    label: String,
+    on_top: bool,
+    decorated: bool,
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
+#[tauri::command]
+fn selftest_windows(app: AppHandle) -> Result<Vec<WindowInfo>, CommandError> {
+    if !selftest_enabled() {
+        return Err(error(ErrorKind::NotAllowed, "self-test only"));
+    }
+    let mut windows = Vec::new();
+    for (label, window) in app.webview_windows() {
+        let scale = window.scale_factor().unwrap_or(1.0);
+        let place = window.outer_position().map(|p| p.to_logical::<f64>(scale)).unwrap_or(tauri::LogicalPosition::new(0.0, 0.0));
+        let size = window.inner_size().map(|s| s.to_logical::<f64>(scale)).unwrap_or(tauri::LogicalSize::new(0.0, 0.0));
+        windows.push(WindowInfo {
+            label,
+            on_top: window.is_always_on_top().unwrap_or(false),
+            decorated: window.is_decorated().unwrap_or(true),
+            x: place.x,
+            y: place.y,
+            width: size.width,
+            height: size.height,
+        });
+    }
+    Ok(windows)
+}
+
+/// Moves a window as if the user had dragged it.
+#[tauri::command]
+fn selftest_move_window(app: AppHandle, label: String, x: f64, y: f64) -> Result<(), CommandError> {
+    if !selftest_enabled() {
+        return Err(error(ErrorKind::NotAllowed, "self-test only"));
+    }
+    let window = app.get_webview_window(&label).ok_or_else(|| error(ErrorKind::Window, "no such window"))?;
+    window.set_position(tauri::LogicalPosition::new(x, y)).map_err(|e| error(ErrorKind::Window, e))
+}
+
+/// The sticky windows as saved on disk.
+#[tauri::command]
+fn selftest_layout(state: State<AppState>) -> Result<Vec<crate::stickies::Sticky>, CommandError> {
+    if !selftest_enabled() {
+        return Err(error(ErrorKind::NotAllowed, "self-test only"));
+    }
+    let core = state.core()?;
+    #[cfg(desktop)]
+    return Ok(core.stickies.saved());
+    #[cfg(mobile)]
+    {
+        let _ = core;
+        Ok(Vec::new())
+    }
 }
 
 /// Applies `text` to a note as if a sync had brought it from another device.
@@ -385,7 +555,14 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
         url_is_insecure,
         sync_state,
         take_conflicts,
-        selftest_enabled_cmd,
+        stick_note,
+        unstick_note,
+        set_sticky_on_top,
+        sticky_on_top,
+        selftest_mode,
+        selftest_windows,
+        selftest_move_window,
+        selftest_layout,
         selftest_remote_edit,
         selftest_finish,
     ]

@@ -4,17 +4,88 @@
 
 import { t } from './strings.js';
 
-export async function run({ invoke }) {
+const { emit, listen } = window.__TAURI__.event;
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function until(condition, ms = 3000) {
+  for (const end = Date.now() + ms; Date.now() < end; await wait(50)) {
+    if (await condition()) return true;
+  }
+  return false;
+}
+
+/** Has a sticky window do something, then answers with what it shows. */
+async function askSticky(noteId, action, extra = {}) {
+  const request = Math.random().toString(36).slice(2);
+  const send = () => emit('selftest-sticky', { id: noteId, action, request, ...extra });
+  if (action === 'close') return send();
+  let answer = null;
+  const unlisten = await listen('selftest-sticky-reply', ({ payload }) => {
+    if (payload.request === request) answer = payload;
+  });
+  try {
+    let sent = Date.now();
+    await send();
+    for (const end = sent + 10000; !answer && Date.now() < end; await wait(50)) {
+      // Only a question is asked again, for a window still loading.
+      if (action === 'state' && Date.now() - sent > 500) {
+        sent = Date.now();
+        await send();
+      }
+    }
+  } finally {
+    unlisten();
+  }
+  if (!answer) throw new Error(`the sticky window did not answer "${action}"`);
+  return answer;
+}
+
+/** The sticky window's side of `askSticky`. */
+export function serveSticky({ id, box, onTopButton, closeButton }) {
+  listen('selftest-sticky', async ({ payload }) => {
+    if (payload.id !== id) return;
+    if (payload.action === 'type') {
+      box.value = payload.text;
+      box.dispatchEvent(new Event('input', { bubbles: true }));
+    } else if (payload.action === 'toggleOnTop') {
+      onTopButton.click();
+    } else if (payload.action === 'close') {
+      closeButton.click();
+      return;
+    }
+    await wait(100);
+    emit('selftest-sticky-reply', {
+      request: payload.request,
+      value: box.value,
+      colorClass: [...document.body.classList].find((name) => name.startsWith('color-')),
+      theme: document.documentElement.dataset.theme,
+      onTop: onTopButton.getAttribute('aria-pressed') === 'true',
+    });
+  });
+}
+
+export async function run({ invoke, mode }) {
   const results = [];
   const check = (ok, name) => results.push(`${ok ? 'PASS' : 'FAIL'} ${name}`);
-  const $ = (selector) => document.querySelector(selector);
-  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-  async function until(condition, ms = 3000) {
-    for (const end = Date.now() + ms; Date.now() < end; await wait(50)) {
-      if (await condition()) return true;
+  const finish = () => invoke('selftest_finish', {
+    report: results.join('\n'),
+    passed: results.length > 0 && results.every((line) => line.startsWith('PASS')),
+  });
+  if (mode === 'restore') {
+    try {
+      let info;
+      await until(async () => (info = (await invoke('selftest_windows')).find((w) => w.label.startsWith('sticky-'))), 10000);
+      check(info && Math.round(info.x) === 400 && Math.round(info.y) === 300, 'a sticky window comes back in its place after a restart');
+      check(info?.onTop === true, 'and still stays on top');
+      check((await askSticky(info.label.slice('sticky-'.length), 'state')).value === '贴在桌面上', 'and shows its text');
+    } catch (error) {
+      check(false, `stopped early: ${error?.detail ?? error}`);
     }
-    return false;
+    await finish();
+    return;
   }
+  const themeBefore = localStorage.getItem('tacknote.theme');
+  const $ = (selector) => document.querySelector(selector);
   const shown = (id) => !document.getElementById(id).hidden;
   const box = () => $('#note-text');
   const cards = () => [...document.querySelectorAll('.card')];
@@ -140,9 +211,79 @@ export async function run({ invoke }) {
     check($('#settings-error').hidden, 'saving reports no error');
     const settings = await invoke('get_settings');
     check(settings.password === password && !settings.passwordUnavailable, 'the keychain gives the password back');
+
+    // Sticky note windows on the desktop.
+    const stickyWindow = async (noteId) => (await invoke('selftest_windows')).find((w) => w.label === `sticky-${noteId}`);
+    const noteId = () => decodeURIComponent(location.hash.split('/')[2]);
+    $('#settings-back').click();
+    await until(() => shown('home'));
+    cards()[0].click();
+    check(await until(() => shown('editor')), 'the remaining note opens');
+    const stuck = noteId();
+    $('#stick-note').click();
+    let sticky = await askSticky(stuck, 'state');
+    check(sticky.value === box().value, 'sticking a note opens a window with its text');
+    const info = await stickyWindow(stuck);
+    check(info?.onTop && !info.decorated, 'the sticky window is frameless and stays on top');
+    sticky = await askSticky(stuck, 'type', { text: `${sticky.value}\n便签窗口里写的` });
+    check(await until(() => box().value.endsWith('\n便签窗口里写的')), 'typing in the sticky window shows in the open editor');
+    fill(box(), `${box().value}!`);
+    check(
+      await until(async () => (await askSticky(stuck, 'state')).value.endsWith('便签窗口里写的!')),
+      'typing in the editor shows in the sticky window',
+    );
+    await invoke('selftest_remote_edit', { id: stuck, text: '来自手机的改动' });
+    check(
+      await until(async () => (await askSticky(stuck, 'state')).value === '来自手机的改动'),
+      'a change from a sync shows in the sticky window',
+    );
+    $('#colors [data-color="4"]').click();
+    check(await until(async () => (await askSticky(stuck, 'state')).colorClass === 'color-4'), 'the sticky window takes the new colour');
+    $('#theme-choice input[value="dark"]').click();
+    check(await until(async () => (await askSticky(stuck, 'state')).theme === 'dark'), 'the sticky window follows the theme');
+    $('#theme-choice input[value="system"]').click();
+    await askSticky(stuck, 'toggleOnTop');
+    check(await until(async () => (await stickyWindow(stuck))?.onTop === false), 'the sticky window can stop staying on top');
+    await invoke('selftest_move_window', { label: `sticky-${stuck}`, x: 321, y: 234 });
+    check(
+      await until(async () => {
+        const saved = (await invoke('selftest_layout')).find((s) => s.noteId === stuck);
+        return saved && Math.round(saved.x) === 321 && Math.round(saved.y) === 234 && saved.onTop === false;
+      }),
+      'its place and the on-top choice are saved on this device',
+    );
+    await askSticky(stuck, 'close');
+    check(await until(async () => !(await stickyWindow(stuck))), 'the close button takes it off the desktop');
+    check(!(await invoke('selftest_layout')).some((s) => s.noteId === stuck), 'and it does not come back next time');
+    $('#stick-note').click();
+    check(await until(async () => !!(await stickyWindow(stuck))), 'it can be stuck again');
+    // Loaded first: a window still loading would close itself on finding no note.
+    await askSticky(stuck, 'state');
+    $('#delete-note').click();
+    check(await until(async () => !(await stickyWindow(stuck))), 'deleting a stuck note closes its window');
+
+    // A new note stuck before anything is written in it is kept, and comes
+    // back after a restart (checked by the "restore" self-test).
+    await until(() => shown('home'));
+    $('#new-note').click();
+    await until(() => shown('editor'));
+    const kept = noteId();
+    $('#stick-note').click();
+    await askSticky(kept, 'state');
+    $('#editor-back').click();
+    check(
+      await until(async () => shown('home') && (await invoke('list_notes')).some((n) => n.id === kept)),
+      'an empty note on the desktop is not discarded',
+    );
+    await askSticky(kept, 'type', { text: '贴在桌面上' });
+    check(await until(async () => (await saved(kept)) === '贴在桌面上'), 'typing in a new sticky window saves the note');
+    // Not waiting for the save: quitting must write the new place itself.
+    await invoke('selftest_move_window', { label: `sticky-${kept}`, x: 400, y: 300 });
   } catch (error) {
     check(false, `stopped early: ${error?.detail ?? error}`);
+  } finally {
+    if (themeBefore === null) localStorage.removeItem('tacknote.theme');
+    else localStorage.setItem('tacknote.theme', themeBefore);
   }
-  const passed = results.every((line) => line.startsWith('PASS'));
-  await invoke('selftest_finish', { report: results.join('\n'), passed });
+  await finish();
 }
