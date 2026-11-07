@@ -1,6 +1,8 @@
 //! TackNote: sticky notes on the desktop and an Android home screen widget,
 //! synced through the user's own WebDAV space.
 
+#[cfg(target_os = "android")]
+mod android;
 mod app;
 pub mod checklist;
 #[cfg(desktop)]
@@ -13,6 +15,7 @@ pub mod store;
 pub mod sync_controller;
 pub mod sync_engine;
 pub mod webdav;
+pub mod widget;
 
 #[cfg(test)]
 mod test_server;
@@ -22,7 +25,10 @@ use tauri::Manager;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(target_os = "android")]
+    let builder = builder.plugin(android::plugin());
+    builder
         .invoke_handler(app::handlers())
         .setup(|app| {
             app::setup(app);

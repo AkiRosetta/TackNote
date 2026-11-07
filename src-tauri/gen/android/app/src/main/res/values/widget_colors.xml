@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Note colours for the widget, the same as src/style.css. -->
+    <color name="note_0">#FFF1A8</color>
+    <color name="note_1">#FFD6DC</color>
+    <color name="note_2">#CFEFC9</color>
+    <color name="note_3">#CDE7FB</color>
+    <color name="note_4">#E2D6FA</color>
+    <color name="note_5">#E9E6DF</color>
+    <color name="widget_text">#1F1D1A</color>
+</resources>

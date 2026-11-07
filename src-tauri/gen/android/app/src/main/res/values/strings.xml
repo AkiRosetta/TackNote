@@ -1,0 +1,7 @@
+<resources>
+    <string name="app_name">"TackNote"</string>
+    <string name="main_activity_title">"TackNote"</string>
+    <string name="widget_label">TackNote</string>
+    <string name="widget_empty">Open a note in TackNote and tap “Show on widget”.</string>
+    <string name="widget_blank">(Empty note)</string>
+</resources>

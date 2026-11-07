@@ -267,15 +267,22 @@ box.addEventListener('compositionend', () => state.editor?.sync.compositionEnded
 
 $('editor-back').addEventListener('click', goBack);
 
-// Phones have no desktop; the Android widget takes this place later.
-$('stick-note').hidden = isPhone;
-$('stick-note').addEventListener('click', () => {
+// Phones have no desktop: there the button puts the note on the home screen
+// widget instead.
+if (isPhone) {
+  $('stick-note').innerHTML = icon('widget');
+  setLabel($('stick-note'), t.showInWidget);
+}
+$('stick-note').addEventListener('click', async () => {
   const editor = state.editor;
   if (!editor) return;
-  invoke('stick_note', { id: editor.id }).catch((error) => {
+  try {
+    await invoke(isPhone ? 'show_in_widget' : 'stick_note', { id: editor.id });
+    if (isPhone) toast(t.shownInWidget);
+  } catch (error) {
     console.error(error);
     toast(t.stickFailed);
-  });
+  }
 });
 
 $('add-checkbox').addEventListener('click', () => {

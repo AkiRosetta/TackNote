@@ -36,6 +36,8 @@ struct Core {
     sync: Arc<AutoSync>,
     #[cfg(desktop)]
     stickies: Arc<crate::desktop::Stickies>,
+    #[cfg(target_os = "android")]
+    widget: Arc<crate::android::Widget>,
 }
 
 /// `Err` when the saved notes could not be opened; the page then says why
@@ -128,6 +130,8 @@ impl Core {
             let alive = alive_notes(&self.notes);
             self.stickies.prune(|id| alive.contains(id));
         }
+        #[cfg(target_os = "android")]
+        self.widget.notes_changed(&self.notes);
         self.sync.notes_changed();
         let _ = app.emit("notes-changed", NotesChanged { source: "local", window: Some(window.label().into()) });
     }
@@ -187,11 +191,18 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
     };
     #[cfg(desktop)]
     let stickies = crate::desktop::Stickies::new(app, dir.join("stickies.json"));
+    #[cfg(target_os = "android")]
+    let widget = crate::android::Widget::new(app, dir.join("widget.json"));
     let on_notes_applied = {
         let app = app.clone();
         #[cfg(desktop)]
         let (notes, stickies) = (notes.clone(), stickies.clone());
+        #[cfg(target_os = "android")]
+        let (notes, widget) = (notes.clone(), widget.clone());
         move || {
+            // The home screen must not keep showing text a sync replaced.
+            #[cfg(target_os = "android")]
+            widget.notes_changed(&notes);
             // A note deleted on another device takes its window with it.
             #[cfg(desktop)]
             {
@@ -217,6 +228,8 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
         sync,
         #[cfg(desktop)]
         stickies,
+        #[cfg(target_os = "android")]
+        widget,
     })
 }
 
@@ -372,6 +385,32 @@ fn sync_state(state: State<AppState>) -> Result<SyncState, CommandError> {
 #[tauri::command]
 fn take_conflicts(state: State<AppState>) -> Result<usize, CommandError> {
     Ok(state.core()?.sync.take_conflicts())
+}
+
+/// Shows the note on the Android home screen widget.
+#[tauri::command]
+fn show_in_widget(state: State<AppState>, id: String) -> Result<(), CommandError> {
+    let core = state.core()?;
+    #[cfg(target_os = "android")]
+    return core.widget.choose(&core.notes, &id).map_err(|e| error(ErrorKind::Storage, e));
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = (core, id);
+        Err(error(ErrorKind::NotAllowed, "only Android has the widget"))
+    }
+}
+
+/// The note the widget shows, if any.
+#[tauri::command]
+fn widget_note(state: State<AppState>) -> Result<Option<String>, CommandError> {
+    let core = state.core()?;
+    #[cfg(target_os = "android")]
+    return Ok(core.widget.chosen());
+    #[cfg(not(target_os = "android"))]
+    {
+        let _ = core;
+        Ok(None)
+    }
 }
 
 #[cfg(mobile)]
@@ -555,6 +594,8 @@ pub fn handlers() -> impl Fn(tauri::ipc::Invoke) -> bool + Send + Sync + 'static
         url_is_insecure,
         sync_state,
         take_conflicts,
+        show_in_widget,
+        widget_note,
         stick_note,
         unstick_note,
         set_sticky_on_top,

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_label">TackNote 便签</string>
+    <string name="widget_empty">在 TackNote 里打开一张便签,点“显示在小组件上”。</string>
+    <string name="widget_blank">(空便签)</string>
+</resources>

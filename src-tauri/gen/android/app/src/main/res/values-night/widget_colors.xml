@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Note colours at night, the same as src/style.css. -->
+    <color name="note_0">#5A5024</color>
+    <color name="note_1">#5E3540</color>
+    <color name="note_2">#2F5236</color>
+    <color name="note_3">#2B4A63</color>
+    <color name="note_4">#47396B</color>
+    <color name="note_5">#45433E</color>
+    <color name="widget_text">#ECE8DF</color>
+</resources>
