@@ -19,6 +19,8 @@ pub enum SyncErrorKind {
     Server,
     Corrupt,
     UnsupportedVersion,
+    /// The synced notes could not be saved on this device.
+    LocalStorage,
 }
 
 /// `detail` is for logs and never contains the password.

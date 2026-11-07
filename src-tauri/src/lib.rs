@@ -4,7 +4,9 @@
 pub mod checklist;
 pub mod merge;
 pub mod model;
+pub mod settings;
 pub mod store;
+pub mod sync_controller;
 pub mod sync_engine;
 pub mod webdav;
 
