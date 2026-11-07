@@ -267,6 +267,11 @@ pub fn setup(app: &tauri::App) {
     app.manage(AppState(core));
     #[cfg(target_os = "android")]
     {
+        // At every start, so widgets read the current format and notes even
+        // right after the app was updated, before any note changes.
+        if let Ok(core) = app.state::<AppState>().core() {
+            core.widget.notes_changed(&core.notes);
+        }
         let app = app.handle().clone();
         tauri::async_runtime::spawn(async move {
             loop {

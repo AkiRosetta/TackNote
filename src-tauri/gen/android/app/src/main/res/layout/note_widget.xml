@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- One TextView per line, so each line can be tapped on its own: a to-do
-     ticks, anything else opens the app. Lines past the twelfth are not shown. -->
+<!-- One row per line, so each line can be tapped on its own: the box in front
+     of a to-do ticks it, the text opens the app. Lines past the twelfth are
+     not shown. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/widget_root"
     android:layout_width="match_parent"
@@ -10,51 +11,117 @@
     android:padding="12dp">
 
     <TextView
-        android:id="@+id/line_0"
+        android:id="@+id/widget_hint"
         style="@style/WidgetLine"
+        android:layout_width="match_parent"
         android:text="@string/widget_empty" />
-    <TextView
-        android:id="@+id/line_1"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_2"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_3"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_4"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_5"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_6"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_7"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_8"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_9"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_10"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
-    <TextView
-        android:id="@+id/line_11"
-        style="@style/WidgetLine"
-        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/row_0"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_0" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_0" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_1" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_1" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_2" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_2" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_3" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_3" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_4"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_4" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_4" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_5"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_5" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_5" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_6"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_6" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_6" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_7"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_7" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_7" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_8"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_8" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_8" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_9"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_9" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_9" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_10"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_10" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_10" style="@style/WidgetLine" />
+    </LinearLayout>
+    <LinearLayout
+        android:id="@+id/row_11"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <TextView android:id="@+id/box_11" style="@style/WidgetBox" />
+        <TextView android:id="@+id/text_11" style="@style/WidgetLine" />
+    </LinearLayout>
 </LinearLayout>

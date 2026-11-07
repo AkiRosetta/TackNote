@@ -6,6 +6,7 @@ import android.appwidget.AppWidgetProvider
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Paint
 import android.view.View
 import android.widget.RemoteViews
 
@@ -64,9 +65,17 @@ class NoteWidget : AppWidgetProvider() {
 
     fun background(color: Int) = BACKGROUNDS[color.coerceIn(0, BACKGROUNDS.size - 1)]
 
-    private val LINES = intArrayOf(
-      R.id.line_0, R.id.line_1, R.id.line_2, R.id.line_3, R.id.line_4, R.id.line_5,
-      R.id.line_6, R.id.line_7, R.id.line_8, R.id.line_9, R.id.line_10, R.id.line_11,
+    private val ROWS = intArrayOf(
+      R.id.row_0, R.id.row_1, R.id.row_2, R.id.row_3, R.id.row_4, R.id.row_5,
+      R.id.row_6, R.id.row_7, R.id.row_8, R.id.row_9, R.id.row_10, R.id.row_11,
+    )
+    private val BOXES = intArrayOf(
+      R.id.box_0, R.id.box_1, R.id.box_2, R.id.box_3, R.id.box_4, R.id.box_5,
+      R.id.box_6, R.id.box_7, R.id.box_8, R.id.box_9, R.id.box_10, R.id.box_11,
+    )
+    private val TEXTS = intArrayOf(
+      R.id.text_0, R.id.text_1, R.id.text_2, R.id.text_3, R.id.text_4, R.id.text_5,
+      R.id.text_6, R.id.text_7, R.id.text_8, R.id.text_9, R.id.text_10, R.id.text_11,
     )
 
     /** The widget's own note, or for widgets from before each had one, the note chosen then. */
@@ -110,35 +119,40 @@ class NoteWidget : AppWidgetProvider() {
     private fun views(context: Context, widgetId: Int, feed: WidgetFeed = WidgetFiles.read(context)): RemoteViews {
       val views = RemoteViews(context.packageName, R.layout.note_widget)
       val note = noteFor(context, widgetId, feed)
-      if (note == null) {
-        // No note yet, or it was deleted: a tap lets the user pick one.
-        views.setInt(R.id.widget_root, "setBackgroundResource", background(0))
-        views.setTextViewText(LINES[0], context.getString(R.string.widget_empty))
-        views.setViewVisibility(LINES[0], View.VISIBLE)
-        for (id in LINES.drop(1)) views.setViewVisibility(id, View.GONE)
-        views.setOnClickPendingIntent(R.id.widget_root, chooseNote(context, widgetId))
-        views.setOnClickPendingIntent(LINES[0], chooseNote(context, widgetId))
+      val lines = note?.let { shownLines(context, it) } ?: emptyList()
+      for ((index, row) in ROWS.withIndex()) {
+        val line = lines.getOrNull(index)
+        views.setViewVisibility(row, if (line == null) View.GONE else View.VISIBLE)
+      }
+      if (note == null || lines.all { it.text.isBlank() && it.checked == null }) {
+        // No note yet or it was deleted: a tap lets the user pick one. An
+        // empty note just says so and opens the app.
+        val action = if (note == null) chooseNote(context, widgetId) else openApp(context)
+        views.setInt(R.id.widget_root, "setBackgroundResource", background(note?.color ?: 0))
+        views.setTextViewText(R.id.widget_hint, context.getString(if (note == null) R.string.widget_empty else R.string.widget_blank))
+        views.setViewVisibility(R.id.widget_hint, View.VISIBLE)
+        for (row in ROWS) views.setViewVisibility(row, View.GONE)
+        views.setOnClickPendingIntent(R.id.widget_root, action)
+        views.setOnClickPendingIntent(R.id.widget_hint, action)
         return views
       }
       val open = openApp(context)
+      views.setViewVisibility(R.id.widget_hint, View.GONE)
       views.setInt(R.id.widget_root, "setBackgroundResource", background(note.color))
       views.setOnClickPendingIntent(R.id.widget_root, open)
-      val lines = shownLines(context, note)
-      for ((index, id) in LINES.withIndex()) {
-        val line = lines.getOrNull(index)
-        if (line == null || (index == 0 && lines.size == 1 && line.text.isBlank())) {
-          views.setViewVisibility(id, View.GONE)
-          continue
+      for ((index, line) in lines.take(ROWS.size).withIndex()) {
+        views.setTextViewText(TEXTS[index], line.text.ifEmpty { " " })
+        views.setOnClickPendingIntent(TEXTS[index], open)
+        // A ticked to-do is struck through, as in the app.
+        val flags = Paint.ANTI_ALIAS_FLAG or (if (line.checked == true) Paint.STRIKE_THRU_TEXT_FLAG else 0)
+        views.setInt(TEXTS[index], "setPaintFlags", flags)
+        if (line.checked == null) {
+          views.setViewVisibility(BOXES[index], View.GONE)
+        } else {
+          views.setViewVisibility(BOXES[index], View.VISIBLE)
+          views.setTextViewText(BOXES[index], if (line.checked) "☑" else "☐")
+          views.setOnClickPendingIntent(BOXES[index], tick(context, widgetId, note.id, index, line))
         }
-        val mark = when (line.checked) { true -> "☑ "; false -> "☐ "; null -> "" }
-        views.setTextViewText(id, mark + line.text.ifEmpty { " " })
-        views.setViewVisibility(id, View.VISIBLE)
-        views.setOnClickPendingIntent(id, if (line.checked == null) open else tick(context, widgetId, note.id, index, line))
-      }
-      if (lines.all { it.text.isBlank() }) {
-        views.setTextViewText(LINES[0], context.getString(R.string.widget_blank))
-        views.setViewVisibility(LINES[0], View.VISIBLE)
-        views.setOnClickPendingIntent(LINES[0], open)
       }
       return views
     }
