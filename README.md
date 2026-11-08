@@ -4,7 +4,7 @@
 
 An open-source sticky notes app for macOS, Windows and Android. Notes sync through your own WebDAV space, with no account and no vendor server.
 
-> 状态:开发中,还没有正式版本。 / Status: in development, no release yet.
+> 状态:第一个版本 v0.1.0。Windows 版目前只经过自动测试。 / Status: first release, v0.1.0. The Windows build has only passed automated tests so far.
 
 ## 功能 / Features
 
