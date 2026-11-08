@@ -346,7 +346,12 @@ export async function run({ invoke, mode }) {
     }
     const settling = [];
     const preview = await dragCard(cardOf(jia), cardOf(bing), false);
-    check(settling[0] === true, 'the card glides into its new place when let go');
+    // With reduced motion (as on CI machines) the card goes straight there.
+    if (matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      check(settling[0] === false, 'with reduced motion the card goes straight to its new place when let go');
+    } else {
+      check(settling[0] === true, 'the card glides into its new place when let go');
+    }
     check(preview.join() === [jia, bing, yi].join(), 'the other cards move aside while dragging, before letting go');
     check(
       await until(async () => (await listed()).join() === [jia, bing, yi].join()),
