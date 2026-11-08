@@ -20,6 +20,7 @@ pub struct State {
     log: Vec<String>,
     version: u64,
     ignore_preconditions: bool,
+    like_jianguoyun: bool,
     before_next_put: Option<Hook>,
 }
 
@@ -85,6 +86,13 @@ impl FakeWebDav {
         self.state.lock().unwrap().ignore_preconditions = !honor;
     }
 
+    /// Answers the way Jianguoyun did (2026-11): 409 for a file in a missing
+    /// folder, 201 for a folder that exists, 403 for deleting a top-level
+    /// folder, and If-None-Match ignored while If-Match is honoured.
+    pub fn answer_like_jianguoyun(&self) {
+        self.state.lock().unwrap().like_jianguoyun = true;
+    }
+
     /// Runs once, just before the next PUT is handled.
     pub fn before_next_put(&self, hook: impl FnOnce(&mut State) + Send + 'static) {
         self.state.lock().unwrap().before_next_put = Some(Box::new(hook));
@@ -138,17 +146,18 @@ fn respond(state: &Mutex<State>, method: &str, path: &str, headers: &HashMap<Str
     if let Some(hook) = hook {
         hook(&mut state);
     }
+    let parent = &path[..path.trim_end_matches('/').rfind('/').map_or(0, |index| index + 1)];
     match method {
         "GET" => match state.files.get(path) {
             Some((content, version)) => (200, Some(*version), content.clone()),
+            None if state.like_jianguoyun && !state.folders.contains(parent) => (409, None, String::new()),
             None => (404, None, String::new()),
         },
         "MKCOL" => {
             let created = state.folders.insert(path.to_string());
-            (if created { 201 } else { 405 }, None, String::new())
+            (if created || state.like_jianguoyun { 201 } else { 405 }, None, String::new())
         }
         "PUT" => {
-            let parent = &path[..path.rfind('/').map_or(0, |index| index + 1)];
             if !state.folders.contains(parent) {
                 return (409, None, String::new());
             }
@@ -157,7 +166,7 @@ fn respond(state: &Mutex<State>, method: &str, path: &str, headers: &HashMap<Str
             let if_none_match = headers.get("if-none-match");
             let blocked = !state.ignore_preconditions
                 && ((if_match.is_some() && if_match != current.as_ref())
-                    || (if_none_match.map(String::as_str) == Some("*") && current.is_some()));
+                    || (!state.like_jianguoyun && if_none_match.map(String::as_str) == Some("*") && current.is_some()));
             if blocked {
                 return (412, None, String::new());
             }
@@ -165,6 +174,9 @@ fn respond(state: &Mutex<State>, method: &str, path: &str, headers: &HashMap<Str
             (201, None, String::new())
         }
         "DELETE" => {
+            if state.like_jianguoyun && parent == "/" && path.ends_with('/') {
+                return (403, None, String::new());
+            }
             let existed = state.files.remove(path).is_some() | state.folders.remove(path);
             if path.ends_with('/') {
                 state.files.retain(|file, _| !file.starts_with(path));

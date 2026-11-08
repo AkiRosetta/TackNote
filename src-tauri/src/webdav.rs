@@ -162,7 +162,8 @@ impl WebDavStore {
 impl RemoteStore for WebDavStore {
     async fn read(&self) -> Result<Option<RemoteFile>, SyncError> {
         let response = self.send(Method::GET, self.file_url()?, |request| request).await?;
-        if response.status() == StatusCode::NOT_FOUND {
+        // Jianguoyun answers 409 rather than 404 while the folder is missing.
+        if matches!(response.status(), StatusCode::NOT_FOUND | StatusCode::CONFLICT) {
             return Ok(None);
         }
         check(&response)?;

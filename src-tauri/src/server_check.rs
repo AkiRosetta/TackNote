@@ -1,8 +1,9 @@
 //! A check against a real WebDAV server, run by hand before trusting a new
 //! server: debug builds only, `TACKNOTE_SELFTEST=webdav` with the account
 //! saved in a test folder. Everything it writes goes into a folder of its own,
-//! `tacknote-check-<id>/`, deleted at the end; the notes file the app syncs is
-//! only read.
+//! `tacknote/check-<id>/`, deleted at the end; the notes file the app syncs is
+//! only read. The folder sits inside the app's folder because Jianguoyun
+//! refuses to delete a folder at the top of the account.
 //!
 //! It confirms what sync relies on: every write gets a new ETag, a missing
 //! folder is reported so it can be created, and two devices syncing through
@@ -96,10 +97,17 @@ pub async fn run(config: WebDavConfig, client: Client) -> (String, bool) {
         }
     };
     let id = &new_id()[..8];
-    let root = base.join(&format!("tacknote-check-{id}/")).expect("a plain folder name joins");
+    let app_folder = base.join("tacknote/").expect("a plain folder name joins");
+    let root = app_folder.join(&format!("check-{id}/")).expect("a plain folder name joins");
     let scratch = std::env::temp_dir().join(format!("tacknote-check-{id}"));
     let raw = Raw { client: &client, config: &config };
 
+    // The app makes this folder on its first sync anyway.
+    match raw.send("MKCOL", &app_folder, &[], None).await {
+        Ok(reply) if reply.status.is_success() || reply.status == StatusCode::METHOD_NOT_ALLOWED => {}
+        Ok(reply) => report.info(format!("making the app's folder answered HTTP {}", reply.status.as_u16())),
+        Err(error) => report.info(format!("making the app's folder failed ({error})")),
+    }
     if let Err(error) = protocol(&mut report, &raw, &root).await {
         report.check(false, format!("the server answers ({error})"));
     }
@@ -112,12 +120,18 @@ pub async fn run(config: WebDavConfig, client: Client) -> (String, bool) {
     app_file(&mut report, &raw, &base).await;
 
     // Cleans up after itself, also when a check failed.
+    let left = format!("tacknote/check-{id}/");
     match raw.send("DELETE", &root, &[], None).await {
         Ok(reply) => {
-            report.check(reply.status.is_success(), format!("the check folder is deleted again (HTTP {})", reply.status.as_u16()));
+            let deleted = reply.status.is_success();
+            report.check(deleted, format!("the check folder is deleted again (HTTP {})", reply.status.as_u16()));
+            if !deleted {
+                report.info(format!("delete {left} by hand"));
+            }
         }
         Err(error) => {
             report.check(false, format!("the check folder is deleted again ({error})"));
+            report.info(format!("delete {left} by hand"));
         }
     }
     let _ = std::fs::remove_dir_all(&scratch);
@@ -180,13 +194,22 @@ async fn protocol(report: &mut Report, raw: &Raw<'_>, root: &Url) -> Result<(), 
     report.info(format!("an upload with an old ETag is refused: {} (HTTP {})", yes_no(refuses_stale), stale.status.as_u16()));
 
     let nowhere = root.join("missing/probe.json").expect("a plain path joins");
+    let unread = raw.send("GET", &nowhere, &[], None).await?;
+    report.check(
+        matches!(unread.status, StatusCode::NOT_FOUND | StatusCode::CONFLICT),
+        format!("a file in a missing folder reads as 404 or 409 (HTTP {})", unread.status.as_u16()),
+    );
     let lost = raw.send("PUT", &nowhere, &[(IF_NONE_MATCH, "*")], Some("x")).await?;
     report.check(
         matches!(lost.status, StatusCode::NOT_FOUND | StatusCode::CONFLICT),
         format!("an upload into a missing folder is refused with 404 or 409 (HTTP {})", lost.status.as_u16()),
     );
+    // Two devices may both make the folder on their first sync.
     let existing = raw.send("MKCOL", root, &[], None).await?;
-    report.check(existing.status == StatusCode::METHOD_NOT_ALLOWED, format!("making a folder that exists answers 405 (HTTP {})", existing.status.as_u16()));
+    report.check(
+        existing.status.is_success() || existing.status == StatusCode::METHOD_NOT_ALLOWED,
+        format!("making a folder that exists is not an error (HTTP {})", existing.status.as_u16()),
+    );
     Ok(())
 }
 
@@ -404,8 +427,24 @@ mod tests {
         let (report, passed) = run(account(&server), http_client()).await;
         assert!(passed, "{report}");
         assert!(report.contains("with 0 notes"), "{report}");
-        assert!(server.paths().iter().all(|path| !path.contains("tacknote-check-")), "{:?}", server.paths());
-        let writes: Vec<String> = server.log().into_iter().filter(|line| !line.starts_with("GET")).collect();
-        assert!(writes.iter().all(|line| line.contains("tacknote-check-")), "{writes:?}");
+        assert!(server.paths().iter().all(|path| !path.contains("/check-")), "{:?}", server.paths());
+        assert_eq!(server.file("/tacknote/notes.json").unwrap(), r#"{"version":1,"notes":[]}"#);
+        let writes: Vec<String> = server
+            .log()
+            .into_iter()
+            .filter(|line| !line.starts_with("GET") && line != "MKCOL /tacknote/")
+            .collect();
+        assert!(writes.iter().all(|line| line.contains("/tacknote/check-")), "{writes:?}");
+    }
+
+    #[tokio::test]
+    async fn a_server_that_answers_like_jianguoyun_passes_and_is_cleaned_up() {
+        let server = FakeWebDav::start();
+        server.answer_like_jianguoyun();
+        let (report, passed) = run(account(&server), http_client()).await;
+        assert!(passed, "{report}");
+        assert!(report.contains("INFO If-None-Match: * on an existing file is refused: no"), "{report}");
+        assert!(report.contains("INFO an upload with an old ETag is refused: yes"), "{report}");
+        assert!(server.paths().iter().all(|path| !path.contains("/check-")), "{:?}", server.paths());
     }
 }

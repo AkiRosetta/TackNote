@@ -130,6 +130,16 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_first_sync_works_on_a_server_that_answers_409_for_the_missing_folder() {
+        let server = FakeWebDav::start();
+        server.answer_like_jianguoyun();
+        run(&server, "a", &[note("你好", "a")]).await.unwrap();
+        assert!(server.file(FILE).unwrap().contains("你好"));
+        let outcome = run(&server, "b", &[]).await.unwrap();
+        assert_eq!(outcome.notes[0].text, "你好");
+    }
+
+    #[tokio::test]
     async fn uploaded_data_never_contains_local_only_fields() {
         let server = FakeWebDav::start();
         run(&server, "a", &[note("x", "a")]).await.unwrap();
