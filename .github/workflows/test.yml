@@ -25,3 +25,22 @@ jobs:
       - name: Rust core
         working-directory: src-tauri
         run: cargo test --lib
+
+  # The real app on Windows: the same self-test as on a Mac, with its
+  # windows, sticky notes, settings and the system's password storage.
+  windows-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build
+        working-directory: src-tauri
+        run: cargo build
+      - name: Self-test
+        shell: bash
+        working-directory: src-tauri
+        run: |
+          dir="$RUNNER_TEMP/selftest"
+          mkdir -p "$dir"
+          TACKNOTE_SELFTEST=1 TACKNOTE_TEST_DIR="$dir" timeout 600 ./target/debug/tacknote.exe 2>&1 | tee selftest.log || true
+          TACKNOTE_SELFTEST=restore TACKNOTE_TEST_DIR="$dir" timeout 120 ./target/debug/tacknote.exe 2>&1 | tee restore.log || true
+          grep -q "SELFTEST PASSED" selftest.log && grep -q "SELFTEST PASSED" restore.log

@@ -98,6 +98,10 @@ jobs:
           npm run tauri android build -- --apk --target aarch64
           cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
             "TackNote_$(node -p "require('./src-tauri/tauri.conf.json').version")_android-arm64.apk"
+      - name: Show who signed it
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          "$apksigner" verify --print-certs TackNote_*_android-arm64.apk | grep "certificate DN"
       - name: Remove the key
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"
