@@ -1,0 +1,127 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds macOS, Windows and Android and makes a
+# draft release from them, to look over before publishing. Starting this by
+# hand (Actions > Release > Run workflow) only builds, to try the builds out;
+# they are kept as downloads on the run's page.
+#
+# Android needs the release key in the repository's secrets:
+#   ANDROID_KEYSTORE_BASE64   the keystore file, base64-encoded
+#   ANDROID_KEYSTORE_PASSWORD its password
+#   ANDROID_KEY_ALIAS         the key's alias
+# Without them a build by hand is signed with a throwaway key, for testing
+# only, and a tag fails rather than publish an app that could never be
+# updated.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            name: macos
+            targets: aarch64-apple-darwin x86_64-apple-darwin
+            args: --target universal-apple-darwin --bundles app,dmg
+            files: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          - os: windows-latest
+            name: windows
+            targets: x86_64-pc-windows-msvc
+            args: --bundles nsis
+            files: src-tauri/target/release/bundle/nsis/*.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - name: Rust targets
+        run: rustup target add ${{ matrix.targets }}
+      - run: npm ci
+      - name: Test
+        shell: bash
+        run: npm test && cd src-tauri && cargo test --lib
+      - name: Build
+        run: npm run tauri build -- ${{ matrix.args }}
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.name }}
+          path: ${{ matrix.files }}
+          if-no-files-found: error
+
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: The tag matches the app's version
+        if: github.ref_type == 'tag'
+        run: test "$GITHUB_REF_NAME" = "v$(node -p "require('./src-tauri/tauri.conf.json').version")"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Rust target
+        run: rustup target add aarch64-linux-android
+      - run: npm ci
+      - name: Release key
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE" ]; then
+            printf '%s' "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/release.jks"
+            echo "TACKNOTE_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          elif [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing. A release must be signed with the release key."
+            exit 1
+          else
+            echo "::warning::No release key, so this APK is signed with a throwaway key and is for testing only."
+          fi
+      - name: Build
+        env:
+          TACKNOTE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          TACKNOTE_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          export NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          npm run tauri android build -- --apk --target aarch64
+          cp src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release.apk \
+            "TackNote_$(node -p "require('./src-tauri/tauri.conf.json').version")_android-arm64.apk"
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/release.jks"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: android
+          path: TackNote_*_android-arm64.apk
+          if-no-files-found: error
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [desktop, android]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --draft \
+            --title "TackNote $GITHUB_REF_NAME" \
+            --notes "安装方法和首次打开时的安全提示见 README。 / See the README for how to install and the security prompts on first launch."

@@ -7,6 +7,11 @@ plugins {
     id("rust")
 }
 
+// The release key, given by the release workflow from the repository's
+// secrets. Without it a release build is signed with this computer's debug
+// key: fine for testing, but such an app can never be updated by the real one.
+val releaseKeystore: String? = System.getenv("TACKNOTE_KEYSTORE")?.takeIf { it.isNotBlank() }
+
 val tauriProperties = Properties().apply {
     val propFile = file("tauri.properties")
     if (propFile.exists()) {
@@ -25,6 +30,16 @@ android {
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
+    signingConfigs {
+        if (releaseKeystore != null) {
+            create("release") {
+                storeFile = file(releaseKeystore)
+                storePassword = System.getenv("TACKNOTE_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("TACKNOTE_KEY_ALIAS")
+                keyPassword = System.getenv("TACKNOTE_KEYSTORE_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         getByName("debug") {
             manifestPlaceholders["usesCleartextTraffic"] = "true"
@@ -39,9 +54,7 @@ android {
             }
         }
         getByName("release") {
-            // For testing only: signed with this computer's debug key so it
-            // installs. A published app needs its own release key instead.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(if (releaseKeystore != null) "release" else "debug")
             optimization {
                enable = true
             }

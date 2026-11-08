@@ -47,5 +47,6 @@
 ## 开发环境
 
 - **网络连接常被中途打断。** 连 crates.io、GitHub、Maven 时经常出现 TLS 握手中断。下载和编译要能自动重试,并且要区分网络错误和代码错误:是网络错误就重试,不是就停下来查。
-- **`npm run tauri dev` 编出来的程序离不开开发服务。** 它的页面从 `127.0.0.1:1430` 读取,开发版退出后再直接打开 `target/debug/tacknote`(比如放进程序坞的那个)就是空的。要给用户一个能放进程序坞、能反复开关的版本,就打测试版 app:`npm run tauri build -- --debug --bundles app --config '{"bundle":{"active":true}}'`。
+- **`npm run tauri dev` 编出来的程序离不开开发服务。** 它的页面从 `127.0.0.1:1430` 读取,开发版退出后再直接打开 `target/debug/tacknote`(比如放进程序坞的那个)就是空的。要给用户一个能放进程序坞、能反复开关的版本,就打测试版 app:`npm run tauri build -- --debug --bundles app`。
+- **macOS 应用要整个签名,哪怕只是临时签名。** 只有链接器给程序自动加的签名时,整个 app 没有封装,别人下载后系统会说“已损坏,应移到废纸篓”,连“仍要打开”都没有。`tauri.conf.json` 里设 `"signingIdentity": "-"`,打包时就会给整个 app 加临时签名,下载后只会提示“无法验证开发者”,可以在“隐私与安全性”里打开。用 `codesign --verify --deep --strict` 检查。
 - **从后台任务启动的桌面程序没有窗口。** 要让用户试用时,用前台命令 `nohup ... & disown` 启动,再确认窗口确实出现了。
