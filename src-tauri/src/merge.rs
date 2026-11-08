@@ -1,12 +1,18 @@
 //! Merges this device's notes with the server's, note by note. A note edited
 //! on both sides is never silently lost: the newer edit keeps the note and the
 //! older text becomes a conflict copy.
+//!
+//! Some servers ignore If-Match, so two devices syncing at the same moment can
+//! write over each other, and the server may then hold an earlier copy of a
+//! note than this device uploaded, or one edited apart from it. `versions`
+//! tells these apart from an ordinary edit on another device, so the text
+//! survives either way.
 
 use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 
-use crate::model::Note;
+use crate::model::{Lineage, Note};
 
 /// Tombstones are dropped after this long. A device offline for longer may
 /// bring a deleted note back, which is safer than losing text.
@@ -45,22 +51,29 @@ pub fn merge_notes(local: &[Note], remote: &[Note], device_id: &str, now: DateTi
             continue;
         };
         if mine.rev == theirs.rev {
-            merged.push((*mine).clone());
+            merged.push(mine.absorbing(theirs));
             continue;
         }
 
         let changed_here = Some(mine.rev.as_str()) != mine.synced_rev.as_deref();
         let changed_there = Some(theirs.rev.as_str()) != mine.synced_rev.as_deref();
-        if changed_here && !changed_there {
+        let lineage = mine.lineage(theirs);
+        if (changed_here && !changed_there) || lineage == Lineage::Older {
+            // Older: the server went back to an earlier copy, because another
+            // device wrote over our upload; ours goes up again.
             merged.push((*mine).clone());
-        } else if !changed_here {
+        } else if !changed_here && lineage != Lineage::Apart {
             merged.push((*theirs).clone());
         } else if mine.deleted != theirs.deleted {
             // An edit beats a deletion, so the text survives.
-            merged.push(if mine.deleted { (*theirs).clone() } else { (*mine).clone() });
+            let (kept, other) = if mine.deleted { (*theirs, *mine) } else { (*mine, *theirs) };
+            merged.push(kept.absorbing(other));
         } else {
+            // Edited on both sides, or edited apart after our upload was
+            // written over.
             let winner = newer(mine, theirs);
-            merged.push(winner.clone());
+            let other = if std::ptr::eq(winner, *mine) { *theirs } else { *mine };
+            merged.push(winner.absorbing(other));
             if mine.text != theirs.text && !mine.deleted {
                 let loser = if std::ptr::eq(winner, *mine) { *theirs } else { *mine };
                 let mut copy = Note::new(device_id, loser.text.clone(), now);
@@ -82,9 +95,12 @@ pub fn merge_notes(local: &[Note], remote: &[Note], device_id: &str, now: DateTi
         })
         .collect();
 
-    let remote_revs: HashMap<&str, &str> = remote.iter().map(|n| (n.id.as_str(), n.rev.as_str())).collect();
     let remote_needs_update = kept.len() != remote.len()
-        || kept.iter().any(|note| remote_revs.get(note.id.as_str()) != Some(&note.rev.as_str()));
+        || kept.iter().any(|note| {
+            remote_by_id
+                .get(note.id.as_str())
+                .is_none_or(|theirs| theirs.rev != note.rev || theirs.versions != note.versions)
+        });
 
     MergeResult {
         notes: kept,
@@ -261,5 +277,101 @@ mod tests {
         assert_eq!(texts(&third.notes), HashSet::from(["from a".into(), "from b".into()]));
         assert_eq!(texts(&third.notes), texts(&second.notes));
         assert!(!third.remote_needs_update);
+    }
+
+    /// What device "a" holds once its edit reached the server.
+    fn uploaded(note: &Note, edit: Edit, minute: i64) -> Note {
+        let edited = note.edited("a", edit, t(minute));
+        edited.with_synced_rev(Some(edited.rev.clone()))
+    }
+
+    fn deletion() -> Edit {
+        Edit { deleted: Some(true), ..Edit::default() }
+    }
+
+    #[test]
+    fn the_server_going_back_to_an_earlier_copy_keeps_ours() {
+        // Another device wrote over our upload with the copy it had read before.
+        let base = synced("first");
+        let ours = uploaded(&base, text("second"), 1);
+        let result = merge(&[ours], &[base.for_upload()]);
+        assert_eq!(texts(&result.notes), HashSet::from(["second".into()]));
+        assert_eq!(result.conflicts, 0);
+        assert!(result.remote_needs_update, "ours goes up again");
+    }
+
+    #[test]
+    fn a_deletion_written_over_by_an_earlier_copy_stays_deleted() {
+        let base = synced("first");
+        let ours = uploaded(&base, deletion(), 1);
+        let result = merge(&[ours], &[base.for_upload()]);
+        assert!(result.notes[0].deleted);
+        assert!(result.remote_needs_update);
+    }
+
+    #[test]
+    fn a_copy_edited_apart_from_our_upload_keeps_both_texts() {
+        // Another device edited the copy it read before our upload, then wrote over it.
+        let base = synced("first");
+        let ours = uploaded(&base, text("ours"), 1);
+        let theirs = base.edited("b", text("theirs"), t(1)).for_upload();
+        let result = merge(&[ours], &[theirs]);
+        assert_eq!(texts(&result.notes), HashSet::from(["ours".into(), "theirs".into()]));
+        assert_eq!(result.conflicts, 1);
+    }
+
+    #[test]
+    fn after_a_conflict_both_devices_go_on_without_another_copy() {
+        // Either side may be the newer one.
+        for (ours_at, theirs_at) in [(1, 2), (2, 1)] {
+            let base = synced("first");
+            let ours = uploaded(&base, text("ours"), ours_at);
+            let theirs = base.edited("b", text("theirs"), t(theirs_at));
+            let on_a = merge(&[ours], &[theirs.for_upload()]);
+            let from_a: Vec<Note> = on_a.notes.iter().map(Note::for_upload).collect();
+            // Device b still holds the copy it uploaded.
+            let on_b = merge_notes(&[theirs.with_synced_rev(Some(theirs.rev.clone()))], &from_a, "b", t(3));
+            assert_eq!(on_b.conflicts, 0, "{ours_at} {theirs_at}");
+            assert_eq!(texts(&on_b.notes), texts(&on_a.notes));
+            // An edit there afterwards is an ordinary edit for device a.
+            let from_b: Vec<Note> = on_b
+                .notes
+                .iter()
+                .map(|n| if n.id == base.id { n.edited("b", text("later"), t(4)) } else { n.clone() }.for_upload())
+                .collect();
+            let back_on_a = merge(&on_a.notes, &from_b);
+            assert_eq!(back_on_a.conflicts, 0, "{ours_at} {theirs_at}");
+            assert!(texts(&back_on_a.notes).contains("later"));
+        }
+    }
+
+    #[test]
+    fn an_edit_that_beat_a_deletion_goes_up_with_the_deletion_counted_in() {
+        // Our deletion was written over by an edit made apart from it.
+        let base = synced("text");
+        let ours = uploaded(&base, deletion(), 1);
+        let theirs = base.edited("b", text("kept"), t(1));
+        let on_a = merge(&[ours], &[theirs.for_upload()]);
+        assert_eq!(texts(&on_a.notes), HashSet::from(["kept".into()]));
+        assert!(!on_a.notes[0].deleted);
+        assert!(on_a.remote_needs_update, "so device b learns the deletion was seen");
+        let from_a: Vec<Note> = on_a.notes.iter().map(Note::for_upload).collect();
+        let on_b = merge_notes(&[theirs.with_synced_rev(Some(theirs.rev.clone()))], &from_a, "b", t(3));
+        let later = on_b.notes[0].edited("b", text("later"), t(4)).for_upload();
+        let back_on_a = merge(&on_a.notes, &[later]);
+        assert_eq!(back_on_a.conflicts, 0);
+        assert_eq!(texts(&back_on_a.notes), HashSet::from(["later".into()]));
+    }
+
+    #[test]
+    fn notes_from_before_versions_merge_as_before() {
+        let mut base = synced("first");
+        base.versions.clear();
+        let mut theirs = base.edited("b", text("theirs"), t(1));
+        theirs.versions.clear();
+        let result = merge(&[base], &[theirs.for_upload()]);
+        assert_eq!(texts(&result.notes), HashSet::from(["theirs".into()]));
+        assert_eq!(result.conflicts, 0);
+        assert!(!result.remote_needs_update);
     }
 }

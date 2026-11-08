@@ -1,6 +1,9 @@
 //! WebDAV access to one file, `<address>/tacknote/notes.json`. Reads use GET;
 //! writes use PUT with If-Match, or If-None-Match: * for the first upload, so a
 //! write that races another device is detected instead of overwriting it.
+//! Some servers ignore both (SFTPGo did, 2026-11); then the overwritten
+//! device puts its notes back on its next sync (see merge.rs), and
+//! `TACKNOTE_SELFTEST=webdav` shows which kind a server is (server_check.rs).
 
 use std::fmt;
 use std::future::Future;

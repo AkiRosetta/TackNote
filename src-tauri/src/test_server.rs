@@ -67,6 +67,12 @@ impl FakeWebDav {
         self.state.lock().unwrap().folders.insert(path.into());
     }
 
+    /// Every file and folder there is.
+    pub fn paths(&self) -> Vec<String> {
+        let state = self.state.lock().unwrap();
+        state.files.keys().chain(state.folders.iter()).cloned().collect()
+    }
+
     pub fn log(&self) -> Vec<String> {
         self.state.lock().unwrap().log.clone()
     }
@@ -157,6 +163,14 @@ fn respond(state: &Mutex<State>, method: &str, path: &str, headers: &HashMap<Str
             }
             state.set_file(path, &body);
             (201, None, String::new())
+        }
+        "DELETE" => {
+            let existed = state.files.remove(path).is_some() | state.folders.remove(path);
+            if path.ends_with('/') {
+                state.files.retain(|file, _| !file.starts_with(path));
+                state.folders.retain(|folder| !folder.starts_with(path));
+            }
+            (if existed { 204 } else { 404 }, None, String::new())
         }
         _ => (405, None, String::new()),
     }

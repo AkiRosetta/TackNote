@@ -10,6 +10,8 @@ mod desktop;
 pub mod merge;
 pub mod model;
 pub mod order;
+#[cfg(all(debug_assertions, desktop))]
+mod server_check;
 pub mod settings;
 pub mod stickies;
 pub mod store;

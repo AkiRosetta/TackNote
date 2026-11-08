@@ -1,6 +1,9 @@
 //! A note and how it changes. Every edit gets a new `rev`, so two copies with
-//! the same rev are identical; `synced_rev` remembers the rev this device last
-//! agreed on with the server and is never uploaded.
+//! the same rev have the same text; `synced_rev` remembers the rev this device
+//! last agreed on with the server and is never uploaded. `versions` tells
+//! whether one copy grew out of another (see `Note::lineage`).
+
+use std::collections::BTreeMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -49,9 +52,32 @@ pub struct Note {
     pub deleted: bool,
     #[serde(default)]
     pub conflict_copy: bool,
+    /// For each device that edited this note, a number that grows with each
+    /// of its edits: the time in microseconds, or one more than before if the
+    /// clock went back. A copy grew out of another when its number is at least
+    /// as high for every device. Empty for notes from before this was added.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub versions: BTreeMap<String, u64>,
     /// The rev this device last agreed on with the server. Never uploaded.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub synced_rev: Option<String>,
+}
+
+/// How another copy of a note relates to this one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Lineage {
+    /// It grew out of this copy: another device edited it since.
+    Newer,
+    /// This copy grew out of it: it is an earlier state of this one.
+    Older,
+    /// Both were edited apart from a common earlier state.
+    Apart,
+    /// Not known: a copy from before `versions` was added, or the same state.
+    Unknown,
+}
+
+fn stamp(previous: Option<u64>, now: DateTime<Utc>) -> u64 {
+    (now.timestamp_micros().max(0) as u64).max(previous.map_or(0, |value| value + 1))
 }
 
 /// The fields an edit changes; `None` keeps the current value.
@@ -76,6 +102,7 @@ impl Note {
             updated_at: now,
             deleted: false,
             conflict_copy: false,
+            versions: BTreeMap::from([(device_id.to_string(), stamp(None, now))]),
             synced_rev: None,
         }
     }
@@ -91,8 +118,45 @@ impl Note {
             updated_at: now,
             deleted: edit.deleted.unwrap_or(self.deleted),
             conflict_copy: edit.conflict_copy.unwrap_or(self.conflict_copy),
+            versions: {
+                let mut versions = self.versions.clone();
+                let previous = versions.get(device_id).copied();
+                versions.insert(device_id.to_string(), stamp(previous, now));
+                versions
+            },
             synced_rev: self.synced_rev.clone(),
         }
+    }
+
+    /// How `other`, another copy of this note, relates to this one.
+    pub fn lineage(&self, other: &Note) -> Lineage {
+        if self.versions.is_empty() || other.versions.is_empty() {
+            return Lineage::Unknown;
+        }
+        let (mut here_ahead, mut there_ahead) = (false, false);
+        for device in self.versions.keys().chain(other.versions.keys()) {
+            let here = self.versions.get(device).copied().unwrap_or(0);
+            let there = other.versions.get(device).copied().unwrap_or(0);
+            here_ahead |= here > there;
+            there_ahead |= there > here;
+        }
+        match (here_ahead, there_ahead) {
+            (false, true) => Lineage::Newer,
+            (true, false) => Lineage::Older,
+            (true, true) => Lineage::Apart,
+            (false, false) => Lineage::Unknown,
+        }
+    }
+
+    /// This copy, marked as having taken in everything `other` had, so that
+    /// a merged result counts as newer than both copies it came from.
+    pub fn absorbing(&self, other: &Note) -> Note {
+        let mut versions = self.versions.clone();
+        for (device, &value) in &other.versions {
+            let entry = versions.entry(device.clone()).or_insert(0);
+            *entry = (*entry).max(value);
+        }
+        Note { versions, ..self.clone() }
     }
 
     pub fn with_synced_rev(&self, synced_rev: Option<String>) -> Note {
@@ -156,6 +220,31 @@ mod tests {
         note.conflict_copy = true;
         let back: Note = serde_json::from_str(&serde_json::to_string(&note).unwrap()).unwrap();
         assert_eq!(back, note);
+    }
+
+    #[test]
+    fn each_edit_raises_its_devices_version_even_if_the_clock_went_back() {
+        let note = Note::new("a", "x", at(5));
+        let edited = note.edited("a", Edit::default(), at(1));
+        assert!(edited.versions["a"] > note.versions["a"]);
+        let other = edited.edited("b", Edit::default(), at(2));
+        assert_eq!(other.versions["a"], edited.versions["a"]);
+        assert!(other.versions.contains_key("b"));
+    }
+
+    #[test]
+    fn lineage_tells_how_two_copies_relate() {
+        let base = Note::new("a", "x", at(0));
+        let mine = base.edited("a", Edit::default(), at(1));
+        let theirs = base.edited("b", Edit::default(), at(1));
+        assert_eq!(base.lineage(&mine), Lineage::Newer);
+        assert_eq!(mine.lineage(&base), Lineage::Older);
+        assert_eq!(mine.lineage(&theirs), Lineage::Apart);
+        assert_eq!(mine.lineage(&mine.absorbing(&theirs)), Lineage::Newer);
+        assert_eq!(mine.lineage(&mine), Lineage::Unknown);
+        let mut old = base.clone();
+        old.versions.clear();
+        assert_eq!(mine.lineage(&old), Lineage::Unknown);
     }
 
     #[test]

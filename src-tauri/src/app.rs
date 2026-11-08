@@ -257,7 +257,9 @@ fn open_core(app: &AppHandle) -> Result<Core, String> {
 pub fn setup(app: &tauri::App) {
     let core = open_core(app.handle());
     if let Ok(core) = &core {
-        core.sync.start();
+        if !checking_server() {
+            core.sync.start();
+        }
         #[cfg(desktop)]
         {
             let alive = alive_notes(&core.notes);
@@ -265,6 +267,10 @@ pub fn setup(app: &tauri::App) {
         }
     }
     app.manage(AppState(core));
+    #[cfg(all(debug_assertions, desktop))]
+    if checking_server() {
+        check_server(app.handle().clone());
+    }
     #[cfg(target_os = "android")]
     {
         // At every start, so widgets read the current format and notes even
@@ -528,7 +534,34 @@ fn sticky_on_top(state: State<AppState>, id: String) -> Result<Option<bool>, Com
 /// sticky windows came back after a restart.
 #[tauri::command]
 fn selftest_mode() -> Option<String> {
-    selftest_enabled().then(|| std::env::var("TACKNOTE_SELFTEST").unwrap_or_default())
+    // The server check runs in Rust alone; the page has nothing to do.
+    (selftest_enabled() && !checking_server()).then(|| std::env::var("TACKNOTE_SELFTEST").unwrap_or_default())
+}
+
+/// `TACKNOTE_SELFTEST=webdav`: checks the server of the account saved in the
+/// test folder (see `server_check.rs`), prints the report and quits. The
+/// password stays in the keychain, so the check can run again.
+fn checking_server() -> bool {
+    selftest_enabled() && std::env::var("TACKNOTE_SELFTEST").as_deref() == Ok("webdav")
+}
+
+#[cfg(all(debug_assertions, desktop))]
+fn check_server(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        let config = match app.state::<AppState>().core() {
+            Ok(core) => core.settings.load_webdav(),
+            Err(error) => Err(error.detail),
+        };
+        let (report, passed) = match config {
+            Ok(config) if config.is_complete() && !config.password.is_empty() => {
+                crate::server_check::run(config, http_client()).await
+            }
+            Ok(_) => ("FAIL an account with a password is saved in the test folder".to_string(), false),
+            Err(error) => (format!("FAIL the saved account can be read ({error})"), false),
+        };
+        println!("{report}\nSELFTEST {}", if passed { "PASSED" } else { "FAILED" });
+        app.exit(if passed { 0 } else { 1 });
+    });
 }
 
 #[derive(Serialize)]
